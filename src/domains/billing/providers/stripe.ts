@@ -6,16 +6,22 @@ import type {
   RemoteSubscription,
 } from '../provider';
 import { errors } from '@/lib/errors';
+import { getPlan, type PlanId } from '@/config';
 import { timingSafeEqual } from './mock';
 
 /**
  * Stripe implementation.
  *
  * Written against Stripe's REST API with `fetch` rather than the Node SDK, so
- * it runs unchanged on Workers. It is complete but INERT until three secrets
- * exist: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_PRICE_ID.
- * Without them every method throws `not_configured` — it never guesses and
- * never falls back to the mock.
+ * it runs unchanged on Workers.
+ *
+ * INERT until credentials exist: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, and
+ * a Price ID for the plan being sold. Without them it throws `not_configured`
+ * naming the exact missing variable — it never guesses a price and never falls
+ * back to the mock.
+ *
+ * Prices are per plan, so a partially configured account can sell the plans it
+ * has prices for and refuse the others, rather than charging the wrong amount.
  */
 
 const STRIPE_API = 'https://api.stripe.com/v1';
@@ -29,14 +35,22 @@ export class StripePaymentProvider implements PaymentProvider {
   constructor(
     private readonly secretKey: string,
     private readonly webhookSecret: string,
-    private readonly priceId: string,
+    private readonly priceIds: Record<PlanId, string>,
   ) {}
 
-  private assertConfigured(): void {
+  /**
+   * @param planId when given, the price for that plan is required too.
+   *               Webhook verification does not need any price.
+   */
+  private assertConfigured(planId?: PlanId): void {
     const missing: string[] = [];
     if (!this.secretKey) missing.push('STRIPE_SECRET_KEY');
     if (!this.webhookSecret) missing.push('STRIPE_WEBHOOK_SECRET');
-    if (!this.priceId) missing.push('STRIPE_PRICE_ID');
+
+    if (planId && !this.priceIds[planId]) {
+      missing.push(getPlan(planId).stripePriceEnv);
+    }
+
     if (missing.length) {
       throw errors.notConfigured(
         `Pagamentos não configurados. Faltam: ${missing.join(', ')}.`,
@@ -71,18 +85,21 @@ export class StripePaymentProvider implements PaymentProvider {
   }
 
   async createCheckout(params: CreateCheckoutParams): Promise<CreateCheckoutResult> {
-    this.assertConfigured();
+    this.assertConfigured(params.planId);
 
     const session = await this.request('/checkout/sessions', {
       method: 'POST',
       form: {
         mode: 'subscription',
-        'line_items[0][price]': this.priceId,
+        'line_items[0][price]': this.priceIds[params.planId],
         'line_items[0][quantity]': '1',
         customer_email: params.email,
         client_reference_id: params.checkoutId,
         'metadata[checkout_id]': params.checkoutId,
+        'metadata[plan_id]': params.planId,
+        // Carried onto the subscription so a later webhook still knows the plan.
         'subscription_data[metadata][checkout_id]': params.checkoutId,
+        'subscription_data[metadata][plan_id]': params.planId,
         success_url: params.successUrl,
         cancel_url: params.cancelUrl,
         locale: 'pt-BR',

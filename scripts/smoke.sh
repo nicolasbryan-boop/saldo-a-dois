@@ -81,6 +81,16 @@ check_status 'página de login' "$BASE/entrar" 200
 check_status 'página offline' "$BASE/offline" 200
 check_status 'rota inexistente devolve 404' "$BASE/pagina-que-nao-existe" 404
 
+check 'landing mostra o plano trimestral' "$HOME" 'R$ 69,90'
+check 'landing mostra o plano anual' "$HOME" 'R$ 249,90'
+check 'landing liga o CTA ao plano' "$HOME" '/checkout?plano=anual'
+
+CHECKOUT_PAGE=$(curl -s "$BASE/checkout")
+check 'checkout oferece o mensal' "$CHECKOUT_PAGE" 'R$ 20,90'
+check 'checkout oferece o trimestral' "$CHECKOUT_PAGE" 'R$ 69,90'
+check 'checkout oferece o anual' "$CHECKOUT_PAGE" 'R$ 249,90'
+check 'checkout mostra o equivalente mensal do anual' "$CHECKOUT_PAGE" 'R$ 20,83'
+
 MANIFEST=$(curl -s "$BASE/manifest.webmanifest")
 check 'manifest usa display standalone' "$MANIFEST" '"display":"standalone"'
 check 'manifest tem ícone maskable' "$MANIFEST" 'maskable'
@@ -102,7 +112,36 @@ ADMIN_CODE=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/admin")
 if [ "$ADMIN_CODE" = "307" ] || [ "$ADMIN_CODE" = "302" ]; then ok "/admin redireciona anônimo ($ADMIN_CODE)"; else bad '/admin deveria redirecionar anônimo' "recebeu $ADMIN_CODE"; fi
 
 # ---------------------------------------------------------------------------
-step '3. Checkout'
+step '3. Planos: cada um grava o próprio preço'
+
+for entry in "mensal:2090" "trimestral:6990" "anual:24990"; do
+  PLAN="${entry%%:*}"
+  CENTS="${entry##*:}"
+  RESP=$(curl -s -X POST -H 'Content-Type: application/json'     -d "{\"email\":\"plano-$PLAN-$STAMP@exemplo.test\",\"planId\":\"$PLAN\"}" "$BASE/api/checkout")
+  PID=$(printf '%s' "$RESP" | json checkoutId)
+  DETAIL=$(curl -s "$BASE/api/checkout/$PID")
+  GOT=$(printf '%s' "$DETAIL" | json amountCents)
+  GOTPLAN=$(printf '%s' "$DETAIL" | json planId)
+  if [ "$GOT" = "$CENTS" ] && [ "$GOTPLAN" = "$PLAN" ]; then
+    ok "plano $PLAN grava $CENTS centavos"
+  else
+    bad "plano $PLAN gravou errado" "esperava $PLAN/$CENTS, recebeu $GOTPLAN/$GOT"
+  fi
+done
+
+BAD_PLAN=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json'   -d "{\"email\":\"invalido-$STAMP@exemplo.test\",\"planId\":\"vitalicio\"}" "$BASE/api/checkout")
+if [ "$BAD_PLAN" = "422" ]; then ok 'plano fora do catálogo é recusado (422)'; else bad 'plano inválido deveria falhar' "recebeu $BAD_PLAN"; fi
+
+TAMPER=$(curl -s -X POST -H 'Content-Type: application/json'   -d "{\"email\":\"adulterado-$STAMP@exemplo.test\",\"planId\":\"anual\",\"amountCents\":1}" "$BASE/api/checkout")
+TID=$(printf '%s' "$TAMPER" | json checkoutId)
+TAMOUNT=$(curl -s "$BASE/api/checkout/$TID" | json amountCents)
+if [ "$TAMOUNT" = "24990" ]; then ok 'preço enviado pelo cliente é ignorado'; else bad 'cliente conseguiu definir o preço' "recebeu $TAMOUNT"; fi
+
+# /api/checkout allows 10 calls per 10 minutes per IP. This suite spends 6 of
+# them, so it stays re-runnable — but not back to back within the window.
+
+# ---------------------------------------------------------------------------
+step '4. Checkout'
 
 CHECKOUT=$(curl -s -X POST -H 'Content-Type: application/json' -d "{\"email\":\"$OWNER_EMAIL\"}" "$BASE/api/checkout")
 CHECKOUT_ID=$(printf '%s' "$CHECKOUT" | json checkoutId)
@@ -136,7 +175,7 @@ STATUS_AFTER=$(curl -s "$BASE/api/checkout/$CHECKOUT_ID" | json status)
 if [ "$STATUS_AFTER" = "paid" ]; then ok 'checkout confirmado pelo servidor'; else bad 'checkout deveria estar paid' "$STATUS_AFTER"; fi
 
 # ---------------------------------------------------------------------------
-step '4. Criação da conta'
+step '5. Criação da conta'
 
 CLAIM=$(curl -s -c "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d "{\"checkoutId\":\"$CHECKOUT_ID\",\"name\":\"Ana Teste\",\"password\":\"$OWNER_PASSWORD\"}" \
@@ -155,7 +194,7 @@ APP_BEFORE_ONBOARDING=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" "
 if [ "$APP_BEFORE_ONBOARDING" = "307" ]; then ok '/app redireciona para o onboarding pendente (307)'; else bad '/app deveria redirecionar antes do onboarding' "recebeu $APP_BEFORE_ONBOARDING"; fi
 
 # ---------------------------------------------------------------------------
-step '5. Onboarding financeiro'
+step '6. Onboarding financeiro'
 
 ONBOARD=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' -d '{
   "householdName": "Ana & Lucas",
@@ -178,7 +217,7 @@ ONBOARD=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' -d
 check 'onboarding concluído' "$ONBOARD" '"ok":true'
 
 # ---------------------------------------------------------------------------
-step '6. Dashboard'
+step '7. Dashboard'
 
 DASH=$(curl -s -b "$OWNER_JAR" "$BASE/app")
 check 'dashboard mostra a métrica principal' "$DASH" 'Livre para gastar'
@@ -190,7 +229,7 @@ check 'saldo é apresentado como registrado no app' "$DASH" 'Registrado no Saldo
 check 'dashboard sugere registrar o primeiro gasto' "$DASH" 'Registrar primeiro gasto'
 
 # ---------------------------------------------------------------------------
-step '7. Assistente'
+step '8. Assistente'
 
 CHAT1=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d '{"message":"Gastei 120 no mercado"}' "$BASE/api/assistant")
@@ -221,7 +260,7 @@ CHAT_BAD=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X POST -H 'Co
 if [ "$CHAT_BAD" = "422" ]; then ok 'mensagem vazia é rejeitada (422)'; else bad 'mensagem vazia deveria falhar' "recebeu $CHAT_BAD"; fi
 
 # ---------------------------------------------------------------------------
-step '8. Movimentos: criar, editar, excluir'
+step '9. Movimentos: criar, editar, excluir'
 
 TX_LIST=$(curl -s -b "$OWNER_JAR" "$BASE/api/transactions")
 check 'gasto do assistente aparece na lista' "$TX_LIST" 'Mercado'
@@ -254,7 +293,7 @@ DASH_DELETED=$(curl -s -b "$OWNER_JAR" "$BASE/app")
 check 'exclusão recalcula o livre para gastar' "$DASH_DELETED" 'R$ 4.000,00'
 
 # ---------------------------------------------------------------------------
-step '9. Recorrências'
+step '10. Recorrências'
 
 INSTANCES=$(curl -s -b "$OWNER_JAR" "$BASE/app/planejamento")
 check 'contas do ciclo materializadas' "$INSTANCES" 'Aluguel'
@@ -267,7 +306,7 @@ check 'recorrências não duplicam após vários acessos' "$DASH_STABLE" 'R$ 3.3
 [ -n "$PENDING_COUNT" ] && ok 'contagem de contas em aberto exibida'
 
 # ---------------------------------------------------------------------------
-step '10. Metas'
+step '11. Metas'
 
 GOAL=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d '{"name":"Viagem","targetCents":800000,"monthlyPlanCents":50000}' "$BASE/api/goals")
@@ -284,7 +323,7 @@ check 'guardar não muda o livre para gastar' "$FREE_AFTER_RESERVE" 'R$ 4.000,00
 printf '%s' "$FREE_BEFORE_RESERVE" | grep -qF 'R$ 4.000,00' && ok 'livre para gastar estável antes e depois do aporte'
 
 # ---------------------------------------------------------------------------
-step '11. Convite do parceiro'
+step '12. Convite do parceiro'
 
 INVITE=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d "{\"name\":\"Lucas Teste\",\"email\":\"$PARTNER_EMAIL\",\"temporaryPassword\":\"$PARTNER_TEMP\"}" \
@@ -297,7 +336,7 @@ THIRD=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X POST -H 'Conte
 if [ "$THIRD" = "409" ]; then ok 'terceira pessoa é recusada pelo limite do plano (409)'; else bad 'limite de 2 pessoas deveria bloquear' "recebeu $THIRD"; fi
 
 # ---------------------------------------------------------------------------
-step '12. Primeiro acesso do parceiro'
+step '13. Primeiro acesso do parceiro'
 
 curl -s -c "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d "{\"email\":\"$PARTNER_EMAIL\",\"password\":\"$PARTNER_TEMP\"}" \
@@ -325,7 +364,7 @@ check 'parceiro vê o mesmo espaço' "$PARTNER_DASH" 'Ana &amp; Lucas'
 check 'parceiro vê o mesmo livre para gastar' "$PARTNER_DASH" 'R$ 4.000,00'
 
 # ---------------------------------------------------------------------------
-step '13. Dados compartilhados entre o casal'
+step '14. Dados compartilhados entre o casal'
 
 curl -s -b "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
   -d '{"message":"gastei 80 de gasolina"}' "$BASE/api/assistant" > /dev/null
@@ -337,7 +376,7 @@ OWNER_DASH_SHARED=$(curl -s -b "$OWNER_JAR" "$BASE/app")
 check 'lançamento do parceiro altera o saldo do dono' "$OWNER_DASH_SHARED" 'R$ 3.920,00'
 
 # ---------------------------------------------------------------------------
-step '14. Permissões dentro do casal'
+step '15. Permissões dentro do casal'
 
 PARTNER_CANCEL=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X POST "$BASE/api/assinatura/cancelar")
 if [ "$PARTNER_CANCEL" = "403" ]; then ok 'parceiro não gerencia a assinatura (403)'; else bad 'parceiro não deveria cancelar a assinatura' "recebeu $PARTNER_CANCEL"; fi
@@ -348,7 +387,7 @@ PARTNER_INVITE=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X POS
 if [ "$PARTNER_INVITE" = "403" ] || [ "$PARTNER_INVITE" = "409" ]; then ok "parceiro não convida terceiros ($PARTNER_INVITE)"; else bad 'parceiro não deveria convidar' "recebeu $PARTNER_INVITE"; fi
 
 # ---------------------------------------------------------------------------
-step '15. Isolamento entre casais'
+step '16. Isolamento entre casais'
 
 curl -s -c "$SEED_JAR" -X POST -H 'Content-Type: application/json' \
   -d '{"email":"ana@exemplo.com","password":"demo123456"}' "$BASE/api/auth/sign-in/email" > /dev/null
@@ -378,7 +417,7 @@ if [ "$STILL_THERE" = "200" ]; then ok 'movimento do dono continua intacto'; els
 curl -s -b "$OWNER_JAR" -X DELETE "$BASE/api/transactions/$VICTIM_ID" > /dev/null
 
 # ---------------------------------------------------------------------------
-step '16. Demais telas do app'
+step '17. Demais telas do app'
 
 check_status 'tela de chat' "$BASE/app/chat" 200 "$OWNER_JAR"
 check_status 'tela de movimentos' "$BASE/app/movimentos" 200 "$OWNER_JAR"
@@ -395,7 +434,7 @@ REPORT=$(curl -s -b "$OWNER_JAR" "$BASE/app/relatorio")
 check 'relatório traz o resumo do ciclo' "$REPORT" 'Receberam'
 
 # ---------------------------------------------------------------------------
-step '17. Logout e sessão'
+step '18. Logout e sessão'
 
 curl -s -b "$OWNER_JAR" -c "$OWNER_JAR" -X POST \
   -H 'Content-Type: application/json' -H "Origin: $BASE" \

@@ -8,12 +8,29 @@ import { Field, Input } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { api, ApiClientError } from '@/lib/api-client';
 import { formatBRL } from '@/lib/money';
-import { pricing } from '@/config';
+import { cn } from '@/lib/cn';
+import {
+  planList,
+  pricing,
+  getPlan,
+  monthlyEquivalentCents,
+  savingsVsMonthlyCents,
+  type PlanId,
+} from '@/config';
 
-export function CheckoutStart({ canceled }: { canceled: boolean }) {
+export function CheckoutStart({
+  canceled,
+  initialPlanId,
+}: {
+  canceled: boolean;
+  initialPlanId?: string;
+}) {
+  const [planId, setPlanId] = React.useState<PlanId>(getPlan(initialPlanId).id);
   const [email, setEmail] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const plan = getPlan(planId);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -23,6 +40,7 @@ export function CheckoutStart({ canceled }: { canceled: boolean }) {
     try {
       const result = await api.post<{ checkoutId: string; url: string }>('/api/checkout', {
         email: email.trim(),
+        planId,
       });
       // Leaves our origin for the gateway (or the simulated one in dev).
       window.location.href = result.url;
@@ -48,22 +66,26 @@ export function CheckoutStart({ canceled }: { canceled: boolean }) {
       )}
 
       <Card className="overflow-hidden">
-        <div className="bg-ink-900 px-6 py-6 text-center text-white">
-          <p className="font-display text-xl font-semibold">Plano {pricing.plan.name}</p>
-          <p className="mt-3 flex items-baseline justify-center gap-1.5">
-            <span className="tabular font-display text-[2.5rem] font-semibold leading-none">
-              {formatBRL(pricing.plan.priceCents)}
-            </span>
-            <span className="text-sm font-medium text-white/60">/mês</span>
-          </p>
-          <p className="mt-2 text-xs text-white/70">
-            por casal · {pricing.plan.maxMembers} pessoas inclusas
-          </p>
-        </div>
-
         <div className="p-6">
-          <ul className="space-y-2.5">
-            {pricing.plan.features.slice(0, 5).map((feature) => (
+          <fieldset>
+            <legend className="text-xs font-bold uppercase tracking-[0.14em] text-ink-500">
+              Escolha como pagar
+            </legend>
+
+            <div className="mt-3 space-y-2.5">
+              {planList.map((option) => (
+                <PlanOption
+                  key={option.id}
+                  plan={option}
+                  selected={option.id === planId}
+                  onSelect={() => setPlanId(option.id)}
+                />
+              ))}
+            </div>
+          </fieldset>
+
+          <ul className="mt-6 space-y-2.5 border-t border-ink-100 pt-6">
+            {pricing.features.slice(0, 5).map((feature) => (
               <li key={feature} className="flex gap-2.5">
                 <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-money-in" />
                 <span className="text-sm leading-snug text-ink-700">{feature}</span>
@@ -98,12 +120,13 @@ export function CheckoutStart({ canceled }: { canceled: boolean }) {
 
             <Button type="submit" size="lg" fullWidth loading={loading}>
               <Lock aria-hidden className="size-4" />
-              Ir para o pagamento
+              Pagar {formatBRL(plan.priceCents)} · plano {plan.name.toLowerCase()}
             </Button>
 
             <p className="text-center text-xs leading-relaxed text-ink-500">
-              A senha vem depois da confirmação do pagamento. Cobrança mensal, cancele
-              quando quiser.
+              Cobrança recorrente a cada{' '}
+              {plan.intervalMonths === 1 ? 'mês' : `${plan.intervalMonths} meses`}. A senha
+              vem depois da confirmação do pagamento. Cancele quando quiser.
             </p>
           </form>
         </div>
@@ -116,5 +139,65 @@ export function CheckoutStart({ canceled }: { canceled: boolean }) {
         </Link>
       </p>
     </div>
+  );
+}
+
+function PlanOption({
+  plan,
+  selected,
+  onSelect,
+}: {
+  plan: (typeof planList)[number];
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const equivalent = monthlyEquivalentCents(plan);
+  const savings = savingsVsMonthlyCents(plan);
+
+  return (
+    <label
+      className={cn(
+        'flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors',
+        selected
+          ? 'border-ink-900 bg-cream-50 ring-1 ring-ink-900'
+          : 'border-ink-200 bg-white hover:border-ink-300',
+      )}
+    >
+      <input
+        type="radio"
+        name="plano"
+        value={plan.id}
+        checked={selected}
+        onChange={onSelect}
+        className="mt-1 size-4 shrink-0 accent-[#101828]"
+      />
+
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <span className="font-display text-lg font-semibold text-ink-900">
+            {plan.name}
+          </span>
+          <span className="tabular text-lg font-semibold text-ink-900">
+            {formatBRL(plan.priceCents)}
+            <span className="text-sm font-medium text-ink-500">/{plan.intervalLabel}</span>
+          </span>
+        </span>
+
+        <span className="mt-1 block text-xs leading-snug text-ink-500">
+          {plan.intervalMonths > 1 && (
+            <>equivale a {formatBRL(equivalent)} por mês · </>
+          )}
+          {plan.tagline}
+        </span>
+
+        {/* Only shown when there is a real saving. A badge on a plan that costs
+            more would be a lie, and this product does not do that. */}
+        {savings > 0 && (
+          <span className="mt-2 inline-block rounded-full bg-money-in-soft px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-[#0b7a55]">
+            economize {formatBRL(savings)}
+          </span>
+        )}
+      </span>
+    </label>
   );
 }

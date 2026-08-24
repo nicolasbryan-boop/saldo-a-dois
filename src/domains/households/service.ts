@@ -186,7 +186,7 @@ export async function createHousehold(
     ownerUserId: input.ownerUserId,
     cycleStartDay,
     timezone: input.timezone ?? DEFAULT_TIMEZONE,
-    currency: pricing.plan.currency,
+    currency: pricing.currency,
     monthlyReserveCents: 0,
     createdAt: now,
     updatedAt: now,
@@ -272,7 +272,7 @@ export async function assertCanAddMember(
   householdId: string,
 ): Promise<void> {
   const members = await listMembers(db, householdId);
-  if (members.length >= pricing.plan.maxMembers) {
+  if (members.length >= pricing.maxMembers) {
     throw errors.memberLimitReached();
   }
 }

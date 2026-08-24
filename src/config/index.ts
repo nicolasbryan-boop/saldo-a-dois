@@ -1,4 +1,13 @@
 export { branding } from './branding';
-export { pricing } from './pricing';
+export {
+  pricing,
+  planIds,
+  planList,
+  getPlan,
+  isPlanId,
+  monthlyEquivalentCents,
+  savingsVsMonthlyCents,
+  periodEndFor,
+} from './pricing';
 export type { Branding } from './branding';
-export type { Plan } from './pricing';
+export type { Plan, PlanId } from './pricing';

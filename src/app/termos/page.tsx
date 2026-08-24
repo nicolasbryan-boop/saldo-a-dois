@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { LegalPage, LegalSection, LegalList } from '@/components/marketing/legal-page';
-import { branding, pricing } from '@/config';
+import { branding, planList, pricing } from '@/config';
 import { formatBRL } from '@/lib/money';
 
 export const metadata: Metadata = {
@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   description: `Condições de uso do ${branding.name}.`,
 };
 
-const PRICE = formatBRL(pricing.plan.priceCents);
+/** One line per plan, so the terms always match the catalogue. */
+const PLAN_LINES = planList.map(
+  (plan) =>
+    `Plano ${plan.name}: ${formatBRL(plan.priceCents)} por ${plan.intervalLabel}, cobrado de forma recorrente.`,
+);
 
 export default function TermsPage() {
   return (
@@ -53,8 +57,9 @@ export default function TermsPage() {
       <LegalSection title="Assinatura, cobrança e cancelamento">
         <LegalList
           items={[
-            `O plano ${pricing.plan.name} custa ${PRICE} por mês e cobre as duas pessoas do casal.`,
-            'A cobrança é mensal e recorrente, processada pelo meio de pagamento contratado.',
+            `Todos os planos cobrem as ${pricing.maxMembers} pessoas do casal e dão acesso ao mesmo produto — muda apenas a periodicidade da cobrança.`,
+            ...PLAN_LINES,
+            'A cobrança é recorrente e processada pelo meio de pagamento contratado.',
             'Você pode cancelar quando quiser, dentro do aplicativo, sem multa e sem fidelidade.',
             'Ao cancelar, o acesso continua até o fim do período já pago.',
             'Se um pagamento falhar, avisamos e o acesso pode ser suspenso até a regularização. Os dados não são apagados por isso.',

@@ -4,7 +4,7 @@ import { subscriptions, checkoutSessions, paymentEvents } from '@/db/schema';
 import type { SubscriptionStatus } from '@/db/schema';
 import { ids } from '@/lib/ids';
 import { errors } from '@/lib/errors';
-import { pricing } from '@/config';
+import { getPlan, periodEndFor, pricing, type PlanId } from '@/config';
 import { writeAudit } from '@/domains/analytics/audit';
 import type { WebhookOutcome } from './provider';
 
@@ -69,19 +69,22 @@ const CHECKOUT_TTL_MS = 2 * 60 * 60 * 1000;
 
 export async function createCheckoutSession(
   db: Database,
-  params: { email: string; provider: string },
+  params: { email: string; provider: string; planId: PlanId },
 ): Promise<CheckoutRow> {
   const now = new Date();
   const id = ids.checkout();
+  const plan = getPlan(params.planId);
 
+  // The amount is taken from our own catalogue, never from the request. The
+  // browser picks WHICH plan; it does not get to say what that plan costs.
   await db.insert(checkoutSessions).values({
     id,
     email: params.email.toLowerCase().trim(),
     provider: params.provider,
     status: 'pending',
-    planId: pricing.plan.id,
-    amountCents: pricing.plan.priceCents,
-    currency: pricing.plan.currency,
+    planId: plan.id,
+    amountCents: plan.priceCents,
+    currency: pricing.currency,
     expiresAt: new Date(now.getTime() + CHECKOUT_TTL_MS),
     createdAt: now,
   });
@@ -311,11 +314,16 @@ export async function activateSubscriptionForHousehold(
     providerCustomerId: string | null;
     providerSubscriptionId: string | null;
     currentPeriodEnd: Date | null;
+    /** Plan actually bought. Decides the price stored and the period length. */
+    planId: PlanId;
   },
 ): Promise<SubscriptionRow> {
   const now = new Date();
-  const periodEnd =
-    params.currentPeriodEnd ?? new Date(now.getTime() + 31 * 24 * 60 * 60 * 1000);
+  const plan = getPlan(params.planId);
+
+  // When the gateway does not report a period end, derive it from the plan.
+  // A flat 31-day fallback would expire an annual subscriber after one month.
+  const periodEnd = params.currentPeriodEnd ?? periodEndFor(plan, now);
 
   const existing = await db
     .select()
@@ -331,6 +339,9 @@ export async function activateSubscriptionForHousehold(
         provider: params.provider,
         providerCustomerId: params.providerCustomerId,
         providerSubscriptionId: params.providerSubscriptionId,
+        planId: plan.id,
+        priceCents: plan.priceCents,
+        currency: pricing.currency,
         currentPeriodEnd: periodEnd,
         cancelAtPeriodEnd: false,
         canceledAt: null,
@@ -356,9 +367,9 @@ export async function activateSubscriptionForHousehold(
     providerCustomerId: params.providerCustomerId,
     providerSubscriptionId: params.providerSubscriptionId,
     status: 'active',
-    planId: pricing.plan.id,
-    priceCents: pricing.plan.priceCents,
-    currency: pricing.plan.currency,
+    planId: plan.id,
+    priceCents: plan.priceCents,
+    currency: pricing.currency,
     currentPeriodEnd: periodEnd,
     cancelAtPeriodEnd: false,
     createdAt: now,
@@ -371,7 +382,7 @@ export async function activateSubscriptionForHousehold(
     action: 'subscription.activated',
     entity: 'subscription',
     entityId: id,
-    meta: { provider: params.provider },
+    meta: { provider: params.provider, planId: plan.id, priceCents: plan.priceCents },
   });
 
   const rows = await db

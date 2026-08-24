@@ -170,6 +170,7 @@ async function main() {
     providerCustomerId: 'mock_cus_seed',
     providerSubscriptionId: 'mock_sub_seed',
     currentPeriodEnd: new Date(now.getTime() + 30 * 86_400_000),
+    planId: 'mensal',
   });
 
   /* --- Recurring income and bills --------------------------------------- */

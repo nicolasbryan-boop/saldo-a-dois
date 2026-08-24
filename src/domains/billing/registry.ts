@@ -2,6 +2,7 @@ import type { PaymentProvider } from './provider';
 import { MockPaymentProvider } from './providers/mock';
 import { StripePaymentProvider } from './providers/stripe';
 import { readEnv, isProduction, getAppUrl } from '@/server/context';
+import { planIds, planList, type PlanId } from '@/config';
 
 /**
  * Provider registry.
@@ -19,7 +20,7 @@ export function getPaymentProvider(env?: Partial<CloudflareEnv>): PaymentProvide
     return new StripePaymentProvider(
       readEnv(env, 'STRIPE_SECRET_KEY'),
       readEnv(env, 'STRIPE_WEBHOOK_SECRET'),
-      readEnv(env, 'STRIPE_PRICE_ID'),
+      stripePriceIds(env),
     );
   }
 
@@ -30,6 +31,24 @@ export function getPaymentProvider(env?: Partial<CloudflareEnv>): PaymentProvide
   }
 
   return new MockPaymentProvider(getAppUrl(env), mockSecret(env));
+}
+
+/**
+ * Stripe Price ID per plan, read from the env var each plan declares.
+ *
+ * A missing entry is left empty rather than defaulted: the provider then
+ * refuses that specific plan and names the variable, instead of silently
+ * charging the wrong price.
+ */
+export function stripePriceIds(env?: Partial<CloudflareEnv>): Record<PlanId, string> {
+  const entries = planList.map((plan) => [plan.id, readEnv(env, plan.stripePriceEnv)]);
+  return Object.fromEntries(entries) as Record<PlanId, string>;
+}
+
+/** Plans that can actually be sold right now, given the configured prices. */
+export function configuredPlanIds(env?: Partial<CloudflareEnv>): PlanId[] {
+  const prices = stripePriceIds(env);
+  return planIds.filter((id) => prices[id].length > 0);
 }
 
 /**

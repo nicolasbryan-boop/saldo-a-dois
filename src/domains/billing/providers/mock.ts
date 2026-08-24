@@ -6,6 +6,7 @@ import type {
   RemoteSubscription,
 } from '../provider';
 import { errors } from '@/lib/errors';
+import { getPlan, periodEndFor } from '@/config';
 
 /**
  * Development-only payment provider.
@@ -47,14 +48,13 @@ export class MockPaymentProvider implements PaymentProvider {
       checkoutId?: string;
       subscriptionId?: string;
       status?: string;
+      planId?: string;
     };
 
     const eventId = payload.id ?? '';
     if (!eventId) throw errors.validation('Evento sem identificador.');
 
     if (payload.type === 'checkout.paid' && payload.checkoutId) {
-      const periodEnd = new Date();
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
       return {
         kind: 'checkout_paid',
         eventId,
@@ -62,7 +62,9 @@ export class MockPaymentProvider implements PaymentProvider {
         providerRef: `mock_ref_${payload.checkoutId}`,
         customerId: `mock_cus_${payload.checkoutId}`,
         subscriptionId: `mock_sub_${payload.checkoutId}`,
-        currentPeriodEnd: periodEnd,
+        // Left to the plan: the caller derives the period from the plan bought,
+        // so a yearly plan does not get a one-month period in development.
+        currentPeriodEnd: null,
       };
     }
 
@@ -70,8 +72,7 @@ export class MockPaymentProvider implements PaymentProvider {
       const status = payload.status;
       const known = ['active', 'past_due', 'canceled', 'expired'] as const;
       const resolved = known.find((value) => value === status) ?? 'active';
-      const periodEnd = new Date();
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      const periodEnd = periodEndFor(getPlan(payload.planId), new Date());
       return {
         kind: 'subscription_updated',
         eventId,
@@ -91,8 +92,7 @@ export class MockPaymentProvider implements PaymentProvider {
   }
 
   async getSubscription(providerSubscriptionId: string): Promise<RemoteSubscription | null> {
-    const periodEnd = new Date();
-    periodEnd.setMonth(periodEnd.getMonth() + 1);
+    const periodEnd = periodEndFor(getPlan(null), new Date());
     return {
       id: providerSubscriptionId,
       status: 'active',

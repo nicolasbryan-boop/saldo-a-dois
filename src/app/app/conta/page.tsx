@@ -22,6 +22,7 @@ export default async function AccountPage() {
               status: subscription.status,
               statusLabel: subscriptionLabel(subscription.status),
               priceCents: subscription.priceCents,
+              planId: subscription.planId,
               currentPeriodEnd: subscription.currentPeriodEnd
                 ? todayIn(context.household.timezone, subscription.currentPeriodEnd)
                 : null,

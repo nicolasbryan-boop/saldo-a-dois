@@ -15,9 +15,12 @@ export default async function CheckoutPage({
   return (
     <AuthShell
       title="Vamos organizar o dinheiro de vocês"
-      subtitle="Uma assinatura cobre as duas pessoas do casal."
+      subtitle="Uma assinatura cobre as duas pessoas do casal. Escolha a cadência que preferir."
     >
-      <CheckoutStart canceled={params.cancelado === '1'} />
+      <CheckoutStart
+        canceled={params.cancelado === '1'}
+        initialPlanId={typeof params.plano === 'string' ? params.plano : undefined}
+      />
     </AuthShell>
   );
 }

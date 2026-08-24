@@ -13,6 +13,7 @@ import {
 import { createHousehold, findHouseholdForUser, findUserByEmail } from '@/domains/households/service';
 import { trackEvent } from '@/domains/analytics/audit';
 import { errors } from '@/lib/errors';
+import { getPlan } from '@/config';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,9 @@ export const POST = handle(async (request) => {
     providerCustomerId: checkout.providerCustomerId,
     providerSubscriptionId: checkout.providerSubscriptionId,
     currentPeriodEnd: checkout.currentPeriodEnd,
+    // The plan comes from the checkout row the webhook confirmed, not from
+    // anything the browser sends at this step.
+    planId: getPlan(checkout.planId).id,
   });
 
   await db
@@ -118,7 +122,7 @@ export const POST = handle(async (request) => {
     name: 'account_created',
     householdId: household.id,
     userId,
-    props: { provider: checkout.provider },
+    props: { provider: checkout.provider, plan: checkout.planId },
   });
 
   const result = jsonOk({ ok: true, redirectTo: '/onboarding' });

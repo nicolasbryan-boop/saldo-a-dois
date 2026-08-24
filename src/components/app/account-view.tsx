@@ -14,7 +14,7 @@ import { api, ApiClientError } from '@/lib/api-client';
 import { signOut } from '@/domains/auth/client';
 import { formatBRL } from '@/lib/money';
 import { formatDateBR } from '@/lib/dates';
-import { branding, pricing } from '@/config';
+import { branding, getPlan } from '@/config';
 import type { SubscriptionStatus } from '@/db/schema';
 
 export interface AccountViewProps {
@@ -25,6 +25,8 @@ export interface AccountViewProps {
     status: SubscriptionStatus;
     statusLabel: string;
     priceCents: number;
+    /** Plan id stored on the subscription row. */
+    planId: string;
     currentPeriodEnd: string | null;
     cancelAtPeriodEnd: boolean;
     provider: string;
@@ -83,9 +85,12 @@ export function AccountView({ user, role, householdName, subscription }: Account
             <>
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-ink-900">Plano {pricing.plan.name}</p>
+                  <p className="font-semibold text-ink-900">
+                    Plano {getPlan(subscription.planId).name}
+                  </p>
                   <p className="tabular mt-0.5 text-sm text-ink-600">
-                    {formatBRL(subscription.priceCents)}/mês por casal
+                    {formatBRL(subscription.priceCents)}/
+                    {getPlan(subscription.planId).intervalLabel} por casal
                   </p>
                 </div>
                 <Badge

@@ -1,4 +1,4 @@
-import { pricing } from '@/config';
+import type { PlanId } from '@/config';
 
 /**
  * PAYMENT ABSTRACTION
@@ -16,7 +16,8 @@ export interface CreateCheckoutParams {
   /** Our own checkout row id — the correlation key across the whole flow. */
   checkoutId: string;
   email: string;
-  planId: string;
+  /** Which recurring plan is being bought. Selects the gateway price. */
+  planId: PlanId;
   amountCents: number;
   currency: string;
   successUrl: string;
@@ -75,4 +76,3 @@ export interface PaymentProvider {
   getSubscription(providerSubscriptionId: string): Promise<RemoteSubscription | null>;
 }
 
-export const PLAN = pricing.plan;

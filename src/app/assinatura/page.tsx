@@ -13,7 +13,7 @@ import {
   subscriptionLabel,
 } from '@/domains/billing/subscription';
 import { formatBRL } from '@/lib/money';
-import { pricing } from '@/config';
+import { getPlan } from '@/config';
 
 export const metadata: Metadata = { title: 'Assinatura' };
 export const dynamic = 'force-dynamic';
@@ -32,6 +32,8 @@ export default async function SubscriptionPage() {
 
   const subscription = context.subscription;
   const isOwner = context.role === 'owner';
+  // The plan this household actually bought, never a hardcoded one.
+  const plan = getPlan(subscription?.planId);
 
   return (
     <AuthShell
@@ -41,9 +43,10 @@ export default async function SubscriptionPage() {
       <Card className="p-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="font-semibold text-ink-900">Plano {pricing.plan.name}</p>
+            <p className="font-semibold text-ink-900">Plano {plan.name}</p>
             <p className="tabular mt-0.5 text-sm text-ink-600">
-              {formatBRL(pricing.plan.priceCents)}/mês por casal
+              {formatBRL(subscription?.priceCents ?? plan.priceCents)}/
+              {plan.intervalLabel} por casal
             </p>
           </div>
           <Badge tone="negative">

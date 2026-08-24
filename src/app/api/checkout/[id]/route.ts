@@ -25,5 +25,6 @@ export const GET = handle(async (_request, context) => {
     email: checkout.email,
     claimable: isCheckoutClaimable(checkout),
     amountCents: checkout.amountCents,
+    planId: checkout.planId,
   });
 });

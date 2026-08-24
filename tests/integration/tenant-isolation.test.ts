@@ -228,7 +228,7 @@ describe('roles', () => {
       actorUserId: alpha.ownerUserId,
     });
 
-    expect(pricing.plan.maxMembers).toBe(2);
+    expect(pricing.maxMembers).toBe(2);
     await expect(assertCanAddMember(db, alpha.householdId)).rejects.toThrow();
 
     const third = await makeUser(db, { name: 'Terceiro' });

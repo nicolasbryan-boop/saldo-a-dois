@@ -20,7 +20,7 @@ import {
   FaqSection,
   FinalCtaSection,
 } from '@/components/marketing/sections';
-import { branding, pricing } from '@/config';
+import { branding, pricing, planList } from '@/config';
 
 export const metadata: Metadata = {
   title: `${branding.name} — ${branding.tagline}`,
@@ -40,11 +40,13 @@ function StructuredData() {
         operatingSystem: 'Web',
         description: branding.description,
         inLanguage: 'pt-BR',
-        offers: {
+        offers: planList.map((plan) => ({
           '@type': 'Offer',
-          price: (pricing.plan.priceCents / 100).toFixed(2),
-          priceCurrency: pricing.plan.currency,
-        },
+          name: `Plano ${plan.name}`,
+          price: (plan.priceCents / 100).toFixed(2),
+          priceCurrency: pricing.currency,
+          category: 'subscription',
+        })),
       },
     ],
   };

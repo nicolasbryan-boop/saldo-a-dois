@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { branding, pricing } from '@/config';
+import { branding, getPlan } from '@/config';
 import { Logo } from './logo';
 import { formatBRL } from '@/lib/money';
 
@@ -44,7 +44,7 @@ export function MarketingFooter() {
               </li>
               <li>
                 <Link href="/#preco" className="text-ink-600 hover:text-ink-900">
-                  Preço · {formatBRL(pricing.plan.priceCents)}/mês
+                  Preço · a partir de {formatBRL(getPlan(null).priceCents)}/mês
                 </Link>
               </li>
               <li>

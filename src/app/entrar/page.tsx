@@ -5,7 +5,7 @@ import { AuthShell } from '@/components/auth/auth-shell';
 import { SignInForm } from '@/components/auth/sign-in-form';
 import { getSessionUser } from '@/domains/auth/session';
 import { formatBRL } from '@/lib/money';
-import { pricing } from '@/config';
+import { getPlan } from '@/config';
 
 export const metadata: Metadata = { title: 'Entrar' };
 export const dynamic = 'force-dynamic';
@@ -30,7 +30,7 @@ export default async function SignInPage({
         <>
           Ainda não tem conta?{' '}
           <Link href="/checkout" className="link-underline font-semibold text-ink-900">
-            Assinar por {formatBRL(pricing.plan.priceCents)}/mês
+            Assinar a partir de {formatBRL(getPlan(null).priceCents)}/mês
           </Link>
         </>
       }

@@ -4,7 +4,8 @@ import * as React from 'react';
 import Link from 'next/link';
 import { cn } from '@/lib/cn';
 import { Menu, X } from 'lucide-react';
-import { branding, pricing } from '@/config';
+import { branding, getPlan } from '@/config';
+import { formatBRL } from '@/lib/money';
 import { Logo } from './logo';
 
 const LINKS = [
@@ -14,6 +15,9 @@ const LINKS = [
   { href: '#preco', label: 'Preço' },
   { href: '#faq', label: 'Dúvidas' },
 ];
+
+/** Headline price on the CTA: the cheapest entry point, i.e. the monthly plan. */
+const defaultPlan = getPlan(null);
 
 export function MarketingHeader() {
   const [open, setOpen] = React.useState(false);
@@ -77,7 +81,7 @@ export function MarketingHeader() {
             href="/checkout"
             className="rounded-md bg-ink-900 px-4 py-2.5 text-sm font-semibold text-white shadow-soft transition-colors hover:bg-ink-800"
           >
-            Começar por R$ {(pricing.plan.priceCents / 100).toFixed(2).replace('.', ',')}
+            Começar por {formatBRL(defaultPlan.priceCents)}
           </Link>
         </div>
 
@@ -116,7 +120,7 @@ export function MarketingHeader() {
               onClick={() => setOpen(false)}
               className="flex h-12 items-center justify-center rounded-md bg-ink-900 text-[0.9375rem] font-semibold text-white"
             >
-              Começar por R$ 20,90
+              Começar por {formatBRL(defaultPlan.priceCents)}
             </Link>
             <Link
               href="/entrar"

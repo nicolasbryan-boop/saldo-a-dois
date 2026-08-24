@@ -6,6 +6,7 @@ import { ensureCurrentCycle, setOpeningBalance, type CycleRow } from '@/domains/
 import { activateSubscriptionForHousehold } from '@/domains/billing/subscription';
 import type { ActorContext } from '@/domains/transactions/service';
 import type { LocalDate } from '@/lib/dates';
+import type { PlanId } from '@/config';
 import { eq } from 'drizzle-orm';
 
 /** Builders that mirror what the real signup + onboarding flow produces. */
@@ -50,6 +51,7 @@ export async function makeHousehold(
     monthlyReserveCents?: number;
     today?: LocalDate;
     withSubscription?: boolean;
+    planId?: PlanId;
   } = {},
 ): Promise<TestHousehold> {
   const owner = await makeUser(db, { name: 'Ana' });
@@ -93,6 +95,7 @@ export async function makeHousehold(
       providerCustomerId: `cus_${ids.subscription()}`,
       providerSubscriptionId: `sub_${ids.subscription()}`,
       currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+      planId: options.planId ?? 'mensal',
     });
   }
 

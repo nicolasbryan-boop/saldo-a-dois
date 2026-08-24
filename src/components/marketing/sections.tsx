@@ -21,10 +21,19 @@ import {
 import { Reveal } from '@/components/ui/reveal';
 import { PhoneMock } from './phone-mock';
 import { DashboardMockScreen, ChatMockScreen, CoupleMockScreen } from './mock-screens';
-import { branding, pricing } from '@/config';
+import {
+  branding,
+  pricing,
+  planList,
+  getPlan,
+  monthlyEquivalentCents,
+  savingsVsMonthlyCents,
+} from '@/config';
 import { formatBRL } from '@/lib/money';
 
-const PRICE = formatBRL(pricing.plan.priceCents);
+/** Headline price across the page: the cheapest way in, i.e. the monthly plan. */
+const ENTRY_PLAN = getPlan(null);
+const PRICE = formatBRL(ENTRY_PLAN.priceCents);
 
 /* ========================================================================== */
 /* Shared bits                                                                */
@@ -1071,49 +1080,114 @@ export function PricingSection() {
       <Reveal className="mx-auto max-w-2xl text-center">
         <Eyebrow>Preço</Eyebrow>
         <h2 className="mt-4 font-display text-[2rem] font-semibold leading-tight tracking-[-0.025em] sm:text-[2.75rem]">
-          Um plano. Duas pessoas. Sem pegadinha.
+          Duas pessoas. Uma assinatura. Sem pegadinha.
         </h2>
         <p className="mt-5 text-lg leading-relaxed text-ink-600">
-          Menos que um delivery por mês para os dois pararem de brigar com planilha.
+          Os três planos dão exatamente o mesmo produto. Muda só de quanto em quanto
+          tempo a cobrança acontece.
         </p>
       </Reveal>
 
-      <Reveal delay={120} className="mx-auto mt-12 max-w-md">
-        <div className="overflow-hidden rounded-2xl border-2 border-ink-900 bg-white shadow-hero">
-          <div className="bg-ink-900 px-8 py-8 text-center text-white">
-            <p className="font-display text-2xl font-semibold">{pricing.plan.name}</p>
-            <p className="mt-4 flex items-baseline justify-center gap-1.5">
-              <span className="tabular font-display text-[3.25rem] font-semibold leading-none">
-                {PRICE}
-              </span>
-              <span className="text-base font-medium text-white/60">/mês</span>
-            </p>
-            <p className="mt-3 text-sm text-white/70">
-              por casal · {pricing.plan.maxMembers} pessoas inclusas
-            </p>
-          </div>
+      <div className="mt-12 grid gap-5 lg:grid-cols-3">
+        {planList.map((plan, index) => {
+          const featured = plan.id === ENTRY_PLAN.id;
+          const equivalent = monthlyEquivalentCents(plan);
+          const savings = savingsVsMonthlyCents(plan);
 
-          <ul className="space-y-3 px-8 py-8">
-            {pricing.plan.features.map((feature) => (
-              <li key={feature} className="flex gap-3">
-                <Check aria-hidden className="mt-0.5 size-4.5 shrink-0 text-money-in" />
-                <span className="text-[0.9375rem] leading-snug text-ink-700">{feature}</span>
-              </li>
-            ))}
-          </ul>
+          return (
+            <Reveal key={plan.id} delay={index * 90}>
+              <div
+                className={cn(
+                  'flex h-full flex-col overflow-hidden rounded-2xl bg-white',
+                  featured
+                    ? 'border-2 border-ink-900 shadow-hero'
+                    : 'border border-ink-200 shadow-soft',
+                )}
+              >
+                <div
+                  className={cn(
+                    'px-7 py-7 text-center',
+                    featured ? 'bg-ink-900 text-white' : 'bg-cream-50',
+                  )}
+                >
+                  <p className="font-display text-xl font-semibold">{plan.name}</p>
 
-          <div className="border-t border-ink-200 px-8 py-7">
-            <Link
-              href="/checkout"
-              className="flex h-14 w-full items-center justify-center rounded-lg bg-rose-500 text-base font-semibold text-white shadow-soft transition-colors hover:bg-rose-600"
-            >
-              Começar por {PRICE}
-            </Link>
-            <p className="mt-4 text-center text-xs leading-relaxed text-ink-500">
-              Cobrança mensal. Cancele quando quiser, direto no aplicativo.
-            </p>
-          </div>
-        </div>
+                  <p className="mt-3 flex items-baseline justify-center gap-1.5">
+                    <span className="tabular font-display text-[2.5rem] font-semibold leading-none">
+                      {formatBRL(plan.priceCents)}
+                    </span>
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        featured ? 'text-white/60' : 'text-ink-500',
+                      )}
+                    >
+                      /{plan.intervalLabel}
+                    </span>
+                  </p>
+
+                  {plan.intervalMonths > 1 && (
+                    <p
+                      className={cn(
+                        'tabular mt-2 text-xs',
+                        featured ? 'text-white/70' : 'text-ink-500',
+                      )}
+                    >
+                      equivale a {formatBRL(equivalent)} por mês
+                    </p>
+                  )}
+
+                  <p
+                    className={cn(
+                      'mt-3 text-xs leading-snug',
+                      featured ? 'text-white/70' : 'text-ink-500',
+                    )}
+                  >
+                    {plan.tagline}
+                  </p>
+
+                  {/* Rendered only when the plan genuinely costs less than paying
+                      monthly for the same months. No invented discounts. */}
+                  {savings > 0 && (
+                    <p className="mt-3 inline-block rounded-full bg-money-in-soft px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-[#0b7a55]">
+                      economize {formatBRL(savings)}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex flex-1 flex-col px-7 py-7">
+                  <ul className="flex-1 space-y-2.5">
+                    {pricing.features.map((feature) => (
+                      <li key={feature} className="flex gap-2.5">
+                        <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-money-in" />
+                        <span className="text-sm leading-snug text-ink-700">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Link
+                    href={`/checkout?plano=${plan.id}`}
+                    className={cn(
+                      'mt-7 flex h-13 w-full items-center justify-center rounded-lg text-[0.9375rem] font-semibold transition-colors',
+                      featured
+                        ? 'bg-rose-500 text-white shadow-soft hover:bg-rose-600'
+                        : 'border border-ink-300 text-ink-900 hover:bg-cream-50',
+                    )}
+                  >
+                    Assinar {plan.name.toLowerCase()}
+                  </Link>
+                </div>
+              </div>
+            </Reveal>
+          );
+        })}
+      </div>
+
+      <Reveal delay={300}>
+        <p className="mt-8 text-center text-sm text-ink-500">
+          Todos incluem as {pricing.maxMembers} pessoas do casal. Cancele quando quiser,
+          direto no aplicativo.
+        </p>
       </Reveal>
     </Section>
   );
@@ -1231,7 +1305,7 @@ export function FinalCtaSection() {
           Organizem juntos, acompanhem cada gasto e saibam quanto realmente podem usar.
         </p>
         <p className="mt-6 text-base font-semibold text-rose-300">
-          {PRICE}/mês por casal.
+          A partir de {PRICE}/mês por casal.
         </p>
 
         <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">

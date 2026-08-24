@@ -127,7 +127,9 @@ Documentadas em [`.env.example`](.env.example) (Node/`next dev`) e
 | `PAYMENT_PROVIDER` | sim | `mock` (dev) \| `stripe`. `mock` é **recusado** quando `APP_ENV=production`. |
 | `STRIPE_SECRET_KEY` | produção | Chave secreta do Stripe. |
 | `STRIPE_WEBHOOK_SECRET` | produção | Verificação de assinatura do webhook. |
-| `STRIPE_PRICE_ID` | produção | Preço recorrente de R$ 20,90/mês. |
+| `STRIPE_PRICE_MONTHLY_ID` | produção | Price ID recorrente de R$ 20,90 a cada 1 mês. |
+| `STRIPE_PRICE_QUARTERLY_ID` | produção | Price ID recorrente de R$ 69,90 a cada 3 meses. |
+| `STRIPE_PRICE_YEARLY_ID` | produção | Price ID recorrente de R$ 249,90 a cada 12 meses. |
 | `EMAIL_PROVIDER` | sim | `console` (dev, não envia nada) \| `resend`. |
 | `RESEND_API_KEY` | produção | Envio real de e-mail. |
 | `EMAIL_FROM` | produção | Remetente. |
@@ -259,6 +261,49 @@ interface PaymentProvider {
 }
 ```
 
+### Planos
+
+Três planos recorrentes, definidos em [](src/config/pricing.ts) —
+o único lugar do código que sabe quanto o produto custa:
+
+| Plano | Preço | Cobra a cada | Equivale a | Variável do Price ID |
+| --- | --- | --- | --- | --- |
+| Mensal | R$ 20,90 | 1 mês | R$ 20,90/mês |  |
+| Trimestral | R$ 69,90 | 3 meses | R$ 23,30/mês |  |
+| Anual | R$ 249,90 | 12 meses | R$ 20,83/mês |  |
+
+Os três dão exatamente o mesmo produto; muda só a periodicidade da cobrança.
+
+O navegador escolhe **qual** plano — nunca quanto ele custa. O aceita apenas um id do catálogo e busca o preço no servidor.
+
+Selo de economia só aparece quando existe economia de verdade:
+ é negativo para o trimestral (R$ 69,90 contra
+3 × R$ 20,90 = R$ 62,70), e a UI não renderiza nada nesse caso.
+
+### Planos
+
+Três planos recorrentes, definidos em [`src/config/pricing.ts`](src/config/pricing.ts)
+— o único lugar do código que sabe quanto o produto custa:
+
+| Plano | Preço | Cobra a cada | Equivale a | Variável do Price ID |
+| --- | --- | --- | --- | --- |
+| Mensal | R$ 20,90 | 1 mês | R$ 20,90/mês | `STRIPE_PRICE_MONTHLY_ID` |
+| Trimestral | R$ 69,90 | 3 meses | R$ 23,30/mês | `STRIPE_PRICE_QUARTERLY_ID` |
+| Anual | R$ 249,90 | 12 meses | R$ 20,83/mês | `STRIPE_PRICE_YEARLY_ID` |
+
+Os três dão exatamente o mesmo produto; muda só a periodicidade da cobrança.
+
+O navegador escolhe **qual** plano — nunca quanto ele custa. O `/api/checkout`
+aceita apenas um id do catálogo (`z.enum(planIds)`) e busca o preço no servidor.
+
+Selo de economia só aparece quando existe economia de verdade:
+`savingsVsMonthlyCents` é negativo para o trimestral (R$ 69,90 contra
+3 × R$ 20,90 = R$ 62,70), e a UI não renderiza selo nenhum nesse caso.
+
+Quando o gateway não informa o fim do período, ele é derivado do plano
+(`periodEndFor`). Um fallback fixo de 31 dias expiraria um assinante anual
+depois de um mês.
+
 Estados da assinatura: `pending`, `active`, `past_due`, `canceled`, `expired`.
 
 ### Fluxo de compra
@@ -286,10 +331,25 @@ provider mock quando `APP_ENV=production`, e a rota simulada devolve 404.
 [`stripe.ts`](src/domains/billing/providers/stripe.ts) está completo (checkout,
 verificação de assinatura com tolerância de 5 min, cancelamento, consulta), via
 `fetch` para rodar em Workers. Fica **inerte** até existirem
-`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `STRIPE_PRICE_ID` — sem eles
-lança `not_configured` em vez de inventar comportamento.
+`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e o Price ID do plano que está
+sendo vendido — sem eles lança `not_configured` **nomeando a variável que
+falta**, em vez de inventar comportamento.
 
-Webhook: `POST /api/webhooks/payment/stripe`.
+Os preços são por plano, então uma conta parcialmente configurada vende os
+planos que já têm Price ID e recusa os outros, em vez de cobrar o valor errado.
+
+**Webhook:** `POST /api/webhooks/payment/stripe`
+
+Eventos processados:
+
+| Evento | O que faz |
+| --- | --- |
+| `checkout.session.completed` | Marca o checkout como pago e guarda `customer`, `subscription` e o `plan_id` dos metadados. É o que libera a criação da conta. |
+| `customer.subscription.updated` | Atualiza status, fim do período e `cancel_at_period_end`. |
+| `customer.subscription.deleted` | Mesma rota; o status do objeto vira `canceled`. |
+| `invoice.payment_failed` | Marca a assinatura como `past_due`. |
+
+Qualquer outro evento é registrado como `ignored` e **não altera nada**.
 
 ---
 
@@ -398,7 +458,9 @@ npx wrangler secret put NEXT_PUBLIC_APP_URL --env production
 npx wrangler secret put ADMIN_EMAILS --env production
 npx wrangler secret put STRIPE_SECRET_KEY --env production
 npx wrangler secret put STRIPE_WEBHOOK_SECRET --env production
-npx wrangler secret put STRIPE_PRICE_ID --env production
+npx wrangler secret put STRIPE_PRICE_MONTHLY_ID --env production
+npx wrangler secret put STRIPE_PRICE_QUARTERLY_ID --env production
+npx wrangler secret put STRIPE_PRICE_YEARLY_ID --env production
 npx wrangler secret put RESEND_API_KEY --env production
 npx wrangler secret put EMAIL_FROM --env production
 
@@ -546,8 +608,9 @@ segredos de autenticação configurados (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`
 **Ainda precisa de credencial sua:**
 
 1. **Gateway de pagamento.** O Stripe está implementado mas inerte. Faltam
-   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `STRIPE_PRICE_ID`, e cadastrar
-   o webhook. **Consequência hoje: ninguém consegue criar conta em produção** —
+   `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e os três Price IDs
+   (`STRIPE_PRICE_MONTHLY_ID`, `STRIPE_PRICE_QUARTERLY_ID`,
+   `STRIPE_PRICE_YEARLY_ID`), além de cadastrar o webhook. **Consequência hoje: ninguém consegue criar conta em produção** —
    por desenho, o provider mock é recusado quando `APP_ENV=production` e o
    `/api/checkout` responde 503 dizendo exatamente quais chaves faltam.
 2. **Envio de e-mail.** Falta `RESEND_API_KEY`. Sem ela, recuperação de senha e

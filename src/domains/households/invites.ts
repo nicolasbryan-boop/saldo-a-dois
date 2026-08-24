@@ -345,7 +345,7 @@ export async function detachPartner(
   if (member.role === 'owner') {
     throw errors.conflict('Não é possível remover quem criou o espaço.');
   }
-  if (pricing.plan.maxMembers < 2) throw errors.internal();
+  if (pricing.maxMembers < 2) throw errors.internal();
 
   await db
     .update(householdMembers)

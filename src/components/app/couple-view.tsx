@@ -61,7 +61,7 @@ export function CoupleView(props: CoupleViewProps) {
     }
   }
 
-  const canInvite = props.isOwner && props.members.length < pricing.plan.maxMembers;
+  const canInvite = props.isOwner && props.members.length < pricing.maxMembers;
   const totalSpent =
     props.members.reduce((sum, member) => sum + member.spentCents, 0) +
     props.sharedSpentCents;
@@ -82,7 +82,7 @@ export function CoupleView(props: CoupleViewProps) {
           {props.householdName}
         </p>
         <p className="mt-1 text-sm text-ink-600">
-          {props.members.length} de {pricing.plan.maxMembers} pessoas · uma assinatura para
+          {props.members.length} de {pricing.maxMembers} pessoas · uma assinatura para
           os dois
         </p>
       </Card>
