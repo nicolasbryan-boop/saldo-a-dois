@@ -1,5 +1,7 @@
 # Saldo a Dois
 
+**No ar:** https://saldo-a-dois.ainoamesquita.workers.dev
+
 Assistente financeiro para casais. Responde uma pergunta só, e responde bem:
 
 > **Quanto a gente realmente pode gastar?**
@@ -520,6 +522,13 @@ npm run cf:build
 npx wrangler deploy --dry-run --env production   # veja a linha "Total Upload ... gzip"
 ```
 
+### O 307 nos prefetches RSC é do Next, não nosso
+
+Todo prefetch `?_rsc=<hash>` recebe um 307 que normaliza a URL para `?_rsc`.
+Isso acontece igual no `next start` puro, no `wrangler dev` local e em
+produção — é comportamento do Next 16, não do adaptador nem da Cloudflare.
+Custa um round trip a mais por prefetch e não quebra navegação alguma.
+
 ### ESLint fixado no 9.x
 
 O `eslint-plugin-react` embutido no `eslint-config-next` 16 ainda usa
@@ -530,18 +539,21 @@ inteiro, independente da nossa configuração.
 
 ## Pendências e limitações conhecidas
 
-**Precisa de credencial sua para funcionar:**
+**Já feito:** Worker publicado, D1 de produção criado e migrado (25 tabelas),
+segredos de autenticação configurados (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`,
+`NEXT_PUBLIC_APP_URL`, `ADMIN_EMAILS`), Preview URLs desligadas.
+
+**Ainda precisa de credencial sua:**
 
 1. **Gateway de pagamento.** O Stripe está implementado mas inerte. Faltam
    `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e `STRIPE_PRICE_ID`, e cadastrar
-   o webhook. Enquanto isso, produção **não** consegue cobrar (por desenho: o
-   provider mock é recusado quando `APP_ENV=production`).
+   o webhook. **Consequência hoje: ninguém consegue criar conta em produção** —
+   por desenho, o provider mock é recusado quando `APP_ENV=production` e o
+   `/api/checkout` responde 503 dizendo exatamente quais chaves faltam.
 2. **Envio de e-mail.** Falta `RESEND_API_KEY`. Sem ela, recuperação de senha e
    convite por link não saem — e o app avisa isso em vez de fingir que enviou.
-3. **IDs do D1.** `wrangler.jsonc` está com placeholders; troque pelos ids que
-   `wrangler d1 create` imprimir.
-4. **Domínio e branding.** `src/config/branding.ts` centraliza nome, e-mail de
-   suporte, domínio e cores.
+3. **Domínio próprio (opcional).** `src/config/branding.ts` centraliza nome,
+   e-mail de suporte, domínio e cores.
 
 **Limitações assumidas nesta versão:**
 

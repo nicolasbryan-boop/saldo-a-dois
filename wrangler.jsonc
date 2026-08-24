@@ -8,6 +8,11 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  // A URL canônica é a workers.dev do Worker. Preview URLs ficam desligadas:
+  // elas servem o app em hostnames imprevisíveis onde BETTER_AUTH_URL não bate,
+  // então a autenticação falharia por origem divergente (proteção CSRF).
+  "workers_dev": true,
+  "preview_urls": false,
   "observability": {
     "enabled": true
   },
@@ -15,8 +20,7 @@
     {
       "binding": "DB",
       "database_name": "saldo-a-dois-db",
-      // Replace with the id printed by `wrangler d1 create saldo-a-dois-db`.
-      "database_id": "00000000-0000-4000-8000-000000000001",
+      "database_id": "f6c79064-0ca2-4d73-aa48-87f3b1c58160",
       "migrations_dir": "drizzle/migrations"
     }
   ],
@@ -35,11 +39,13 @@
   "env": {
     "preview": {
       "name": "saldo-a-dois-preview",
+      "workers_dev": true,
+      "preview_urls": false,
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "saldo-a-dois-db-preview",
-          "database_id": "00000000-0000-4000-8000-000000000002",
+          "database_id": "af87bd45-7a42-4d0c-8232-f0f1ed67335e",
           "migrations_dir": "drizzle/migrations"
         }
       ],
@@ -54,11 +60,13 @@
     },
     "production": {
       "name": "saldo-a-dois",
+      "workers_dev": true,
+      "preview_urls": false,
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "saldo-a-dois-db",
-          "database_id": "00000000-0000-4000-8000-000000000001",
+          "database_id": "f6c79064-0ca2-4d73-aa48-87f3b1c58160",
           "migrations_dir": "drizzle/migrations"
         }
       ],

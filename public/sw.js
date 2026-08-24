@@ -60,6 +60,16 @@ function isShellAsset(url) {
   );
 }
 
+/**
+ * A cancelled request, not a broken one.
+ *
+ * Happens constantly in normal use: React prefetches a route and the person
+ * navigates before it lands. The browser reports this as an AbortError.
+ */
+function isAbort(error, request) {
+  return error?.name === 'AbortError' || request.signal?.aborted === true;
+}
+
 /** Anything that could contain a couple's financial data. */
 function isPrivate(url) {
   return (
@@ -82,10 +92,17 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
 
   if (isPrivate(url)) {
-    // Network only. On failure, a navigation gets the offline page; an API
-    // call gets a clear error the client can show.
+    // Network only. On a real failure a navigation gets the offline page and an
+    // API call gets an error the client can show.
+    //
+    // An ABORT is not a failure: the page navigated away, or a prefetch was
+    // cancelled. Synthesising a 503 there would log a phantom error and, worse,
+    // make the client show "sem conexão" for a request the person themselves
+    // cancelled. Aborts are re-thrown so the browser handles them normally.
     event.respondWith(
-      fetch(request).catch(async () => {
+      fetch(request).catch(async (error) => {
+        if (isAbort(error, request)) throw error;
+
         if (request.mode === 'navigate') {
           const cached = await caches.match(OFFLINE_URL);
           if (cached) return cached;
@@ -125,7 +142,8 @@ self.addEventListener('fetch', (event) => {
   // Public pages: network first, falling back to the offline page.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(async () => {
+      fetch(request).catch(async (error) => {
+        if (isAbort(error, request)) throw error;
         const cached = await caches.match(OFFLINE_URL);
         return cached ?? Response.error();
       }),

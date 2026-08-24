@@ -5,12 +5,15 @@
  * Node 24 ships a global WebSocket, so this drives headless Chrome over the
  * DevTools Protocol with no dependencies.
  *
- *   node scripts/browser-check.mjs <baseUrl> <sessionCookieValue>
+ *   node scripts/browser-check.mjs <baseUrl> [sessionCookieValue]
  *
  * The cookie comes from a normal sign-in, e.g.
  *   curl -s -c jar -X POST -H 'Content-Type: application/json' \
  *     -d '{"email":"ana@exemplo.com","password":"demo123456"}' \
  *     "$BASE/api/auth/sign-in/email"
+ *
+ * Without a cookie the authenticated routes redirect to the sign-in page,
+ * which is still a useful check of the public surface.
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -132,6 +135,60 @@ async function waitForDevTools() {
   throw new Error('Chrome DevTools não respondeu');
 }
 
+/**
+ * Resolves once no request has been in flight for a quiet period, or after the
+ * timeout regardless. Waiting for quiet beats guessing a duration: closing the
+ * tab mid-request cancels it, and a cancelled request looks like a failure.
+ */
+async function waitForNetworkIdle(session, { quietMs = 900, timeoutMs = 15000 } = {}) {
+  const started = Date.now();
+  let lastSeen = -1;
+
+  while (Date.now() - started < timeoutMs) {
+    const inFlight = new Set();
+
+    for (const event of session.events) {
+      if (event.method === 'Network.requestWillBeSent') {
+        inFlight.add(event.params.requestId);
+      }
+      if (
+        event.method === 'Network.loadingFinished' ||
+        event.method === 'Network.loadingFailed'
+      ) {
+        inFlight.delete(event.params.requestId);
+      }
+    }
+
+    const total = session.events.length;
+    if (inFlight.size === 0 && total === lastSeen && total > 0) return;
+    lastSeen = total;
+
+    await sleep(quietMs);
+  }
+}
+
+/**
+ * A failed RSC prefetch of a DIFFERENT page than the one under test.
+ *
+ * Next prefetches the links on a page; this sweep moves to the next route as
+ * soon as the current one settles, which cancels those in-flight prefetches.
+ * Chrome surfaces the cancellation as a failed resource attributed to the
+ * prefetched URL — a page that was never being checked.
+ *
+ * Verified as a harness artefact, not a defect: requesting those exact URLs
+ * with curl returns 307 -> 200 every time, and a focused probe that lets the
+ * page settle records zero responses >= 400, with and without the service
+ * worker. A failure on the route actually being visited is still reported.
+ */
+function isCancelledPrefetch(url, route) {
+  if (!url || !url.includes('_rsc')) return false;
+  try {
+    return new URL(url).pathname !== route;
+  } catch {
+    return false;
+  }
+}
+
 function isNoise(text) {
   return IGNORED.some((pattern) => pattern.test(text));
 }
@@ -156,12 +213,12 @@ async function visit(route) {
       domain: new URL(BASE).hostname,
       path: '/',
       httpOnly: true,
-      secure: false,
+      secure: BASE.startsWith('https://'),
     });
   }
 
   await session.send('Page.navigate', { url: `${BASE}${route}` });
-  await sleep(3000);
+  await waitForNetworkIdle(session);
 
   const problems = [];
   const requestUrls = new Map();
@@ -187,19 +244,21 @@ async function visit(route) {
     }
 
     if (event.method === 'Log.entryAdded' && event.params.entry.level === 'error') {
-      const text = event.params.entry.text ?? '';
-      if (!isNoise(text)) problems.push(`log: ${text.slice(0, 160)}`);
+      const entry = event.params.entry;
+      const text = entry.text ?? '';
+      const where = entry.url ? ` <- ${entry.url}` : '';
+      if (!isNoise(text) && !isCancelledPrefetch(entry.url, route)) {
+        problems.push(`log: ${text.slice(0, 120)}${where}`);
+      }
     }
 
     if (event.method === 'Network.loadingFailed') {
       const text = event.params.errorText ?? '';
       const url = requestUrls.get(event.params.requestId) ?? '(desconhecida)';
-      // ERR_ABORTED on a prefetch or a keepalive beacon is what happens when
-      // the tab is closed mid-flight — it says nothing about the page.
-      const abortedNavigationHelper =
+      const aborted =
         text === 'net::ERR_ABORTED' &&
         (url.includes('_rsc=') || url.includes('/api/analytics'));
-      if (!isNoise(text) && !abortedNavigationHelper) {
+      if (!isNoise(text) && !aborted && !isCancelledPrefetch(url, route)) {
         problems.push(`requisição falhou: ${text} ${url}`);
       }
     }
