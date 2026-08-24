@@ -28,7 +28,8 @@
     "db:migrate:preview": "wrangler d1 migrations apply saldo-a-dois-db-preview --remote --env preview",
     "auth:schema": "npx --yes auth@1.7.1 generate --config scripts/auth-schema-config.ts --output .auth-schema-reference.ts --yes",
     "smoke": "bash scripts/smoke.sh",
-    "browser:check": "node scripts/browser-check.mjs"
+    "browser:check": "node scripts/browser-check.mjs",
+    "admin:create": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@better-auth/core": "^1.7.1",

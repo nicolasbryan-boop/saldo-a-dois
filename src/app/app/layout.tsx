@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { isAppError } from '@/lib/errors';
 import { getAppContext } from '@/server/app-context';
+import { isAdminUser, requireUser } from '@/domains/auth/session';
 import { BottomNavigation, SideNavigation } from '@/components/app/bottom-navigation';
 import { ToastProvider } from '@/components/ui/toast';
 import { Avatar } from '@/components/ui/primitives';
@@ -41,7 +42,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         case 'subscription_required':
           redirect('/assinatura');
         case 'not_found':
-          redirect('/checkout');
+          // An operations account has no household on purpose. Sending it to
+          // the sales page reads as "buy something to get in", which is both
+          // wrong and alarming for whoever administers the product.
+          //
+          // This only changes where someone lands. It grants nothing: /admin
+          // still verifies the session and ADMIN_EMAILS server-side, and a
+          // non-admin with no household still goes to /checkout.
+          redirect((await isAdminUser(await requireUser())) ? '/admin' : '/checkout');
         default:
           throw error;
       }
