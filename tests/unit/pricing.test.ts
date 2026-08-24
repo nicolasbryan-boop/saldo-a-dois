@@ -23,8 +23,8 @@ describe('catálogo de planos', () => {
 
   it('cobra os valores oficiais, em centavos inteiros', () => {
     expect(getPlan('mensal').priceCents).toBe(2090);
-    expect(getPlan('trimestral').priceCents).toBe(6990);
-    expect(getPlan('anual').priceCents).toBe(24990);
+    expect(getPlan('trimestral').priceCents).toBe(5490);
+    expect(getPlan('anual').priceCents).toBe(22990);
 
     for (const plan of planList) {
       expect(Number.isInteger(plan.priceCents)).toBe(true);
@@ -34,8 +34,8 @@ describe('catálogo de planos', () => {
 
   it('formata os preços do jeito brasileiro', () => {
     expect(formatBRL(getPlan('mensal').priceCents)).toBe('R$ 20,90');
-    expect(formatBRL(getPlan('trimestral').priceCents)).toBe('R$ 69,90');
-    expect(formatBRL(getPlan('anual').priceCents)).toBe('R$ 249,90');
+    expect(formatBRL(getPlan('trimestral').priceCents)).toBe('R$ 54,90');
+    expect(formatBRL(getPlan('anual').priceCents)).toBe('R$ 229,90');
   });
 
   it('cobre a quantidade de meses que promete', () => {
@@ -78,22 +78,44 @@ describe('validação de plano vindo de fora', () => {
 describe('comparação entre planos', () => {
   it('calcula o equivalente mensal', () => {
     expect(monthlyEquivalentCents(getPlan('mensal'))).toBe(2090);
-    expect(monthlyEquivalentCents(getPlan('trimestral'))).toBe(2330);
-    expect(monthlyEquivalentCents(getPlan('anual'))).toBe(2083);
+    // 54,90 / 3
+    expect(monthlyEquivalentCents(getPlan('trimestral'))).toBe(1830);
+    // 229,90 / 12 = 19,158..., arredondado ao centavo
+    expect(monthlyEquivalentCents(getPlan('anual'))).toBe(1916);
   });
 
-  it('reporta economia negativa quando o plano custa mais que o mensal', () => {
-    // 3 x 20,90 = 62,70, e o trimestral custa 69,90.
-    expect(savingsVsMonthlyCents(getPlan('trimestral'))).toBe(-720);
+  it('nenhum plano custa mais por mês do que o próprio mensal', () => {
+    // Não há escada monotônica: hoje o trimestral (R$ 18,30/mês) sai mais
+    // barato por mês que o anual (R$ 19,16/mês). A regra que a UI depende é
+    // apenas esta — todo plano de cadência longa tem que valer a pena contra
+    // o mensal.
+    const mensal = monthlyEquivalentCents(getPlan('mensal'));
+    for (const plan of planList) {
+      expect(monthlyEquivalentCents(plan)).toBeLessThanOrEqual(mensal);
+    }
+  });
+
+  it('reporta a economia real do trimestral', () => {
+    // 3 x 20,90 = 62,70, e o trimestral custa 54,90.
+    expect(savingsVsMonthlyCents(getPlan('trimestral'))).toBe(780);
   });
 
   it('reporta a economia real do anual', () => {
-    // 12 x 20,90 = 250,80, e o anual custa 249,90.
-    expect(savingsVsMonthlyCents(getPlan('anual'))).toBe(90);
+    // 12 x 20,90 = 250,80, e o anual custa 229,90 — um mês de graça.
+    expect(savingsVsMonthlyCents(getPlan('anual'))).toBe(2090);
+    expect(savingsVsMonthlyCents(getPlan('anual'))).toBe(getPlan('mensal').priceCents);
   });
 
   it('não reporta economia no próprio plano mensal', () => {
     expect(savingsVsMonthlyCents(getPlan('mensal'))).toBe(0);
+  });
+
+  it('devolve economia negativa se um plano custar mais que o mensal', () => {
+    // Guards the rule the UI depends on: a badge is only rendered when the
+    // number is positive. If a future price is set above the monthly
+    // equivalent, this must come back negative rather than silently pass.
+    const caro = { ...getPlan('trimestral'), priceCents: 9900 };
+    expect(savingsVsMonthlyCents(caro)).toBeLessThan(0);
   });
 });
 

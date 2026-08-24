@@ -37,7 +37,7 @@ const PLANS: Record<PlanId, Plan> = {
   trimestral: {
     id: 'trimestral',
     name: 'Trimestral',
-    priceCents: 6990,
+    priceCents: 5490,
     intervalMonths: 3,
     intervalLabel: 'trimestre',
     stripePriceEnv: 'STRIPE_PRICE_QUARTERLY_ID',
@@ -46,7 +46,7 @@ const PLANS: Record<PlanId, Plan> = {
   anual: {
     id: 'anual',
     name: 'Anual',
-    priceCents: 24990,
+    priceCents: 22990,
     intervalMonths: 12,
     intervalLabel: 'ano',
     stripePriceEnv: 'STRIPE_PRICE_YEARLY_ID',

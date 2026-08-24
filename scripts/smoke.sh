@@ -81,15 +81,15 @@ check_status 'página de login' "$BASE/entrar" 200
 check_status 'página offline' "$BASE/offline" 200
 check_status 'rota inexistente devolve 404' "$BASE/pagina-que-nao-existe" 404
 
-check 'landing mostra o plano trimestral' "$HOME" 'R$ 69,90'
-check 'landing mostra o plano anual' "$HOME" 'R$ 249,90'
+check 'landing mostra o plano trimestral' "$HOME" 'R$ 54,90'
+check 'landing mostra o plano anual' "$HOME" 'R$ 229,90'
 check 'landing liga o CTA ao plano' "$HOME" '/checkout?plano=anual'
 
 CHECKOUT_PAGE=$(curl -s "$BASE/checkout")
 check 'checkout oferece o mensal' "$CHECKOUT_PAGE" 'R$ 20,90'
-check 'checkout oferece o trimestral' "$CHECKOUT_PAGE" 'R$ 69,90'
-check 'checkout oferece o anual' "$CHECKOUT_PAGE" 'R$ 249,90'
-check 'checkout mostra o equivalente mensal do anual' "$CHECKOUT_PAGE" 'R$ 20,83'
+check 'checkout oferece o trimestral' "$CHECKOUT_PAGE" 'R$ 54,90'
+check 'checkout oferece o anual' "$CHECKOUT_PAGE" 'R$ 229,90'
+check 'checkout mostra o equivalente mensal do anual' "$CHECKOUT_PAGE" 'R$ 19,16'
 
 MANIFEST=$(curl -s "$BASE/manifest.webmanifest")
 check 'manifest usa display standalone' "$MANIFEST" '"display":"standalone"'
@@ -114,7 +114,7 @@ if [ "$ADMIN_CODE" = "307" ] || [ "$ADMIN_CODE" = "302" ]; then ok "/admin redir
 # ---------------------------------------------------------------------------
 step '3. Planos: cada um grava o próprio preço'
 
-for entry in "mensal:2090" "trimestral:6990" "anual:24990"; do
+for entry in "mensal:2090" "trimestral:5490" "anual:22990"; do
   PLAN="${entry%%:*}"
   CENTS="${entry##*:}"
   RESP=$(curl -s -X POST -H 'Content-Type: application/json'     -d "{\"email\":\"plano-$PLAN-$STAMP@exemplo.test\",\"planId\":\"$PLAN\"}" "$BASE/api/checkout")
@@ -135,7 +135,7 @@ if [ "$BAD_PLAN" = "422" ]; then ok 'plano fora do catálogo é recusado (422)';
 TAMPER=$(curl -s -X POST -H 'Content-Type: application/json'   -d "{\"email\":\"adulterado-$STAMP@exemplo.test\",\"planId\":\"anual\",\"amountCents\":1}" "$BASE/api/checkout")
 TID=$(printf '%s' "$TAMPER" | json checkoutId)
 TAMOUNT=$(curl -s "$BASE/api/checkout/$TID" | json amountCents)
-if [ "$TAMOUNT" = "24990" ]; then ok 'preço enviado pelo cliente é ignorado'; else bad 'cliente conseguiu definir o preço' "recebeu $TAMOUNT"; fi
+if [ "$TAMOUNT" = "22990" ]; then ok 'preço enviado pelo cliente é ignorado'; else bad 'cliente conseguiu definir o preço' "recebeu $TAMOUNT"; fi
 
 # /api/checkout allows 10 calls per 10 minutes per IP. This suite spends 6 of
 # them, so it stays re-runnable — but not back to back within the window.

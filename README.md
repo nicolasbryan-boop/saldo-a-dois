@@ -128,8 +128,8 @@ Documentadas em [`.env.example`](.env.example) (Node/`next dev`) e
 | `STRIPE_SECRET_KEY` | produção | Chave secreta do Stripe. |
 | `STRIPE_WEBHOOK_SECRET` | produção | Verificação de assinatura do webhook. |
 | `STRIPE_PRICE_MONTHLY_ID` | produção | Price ID recorrente de R$ 20,90 a cada 1 mês. |
-| `STRIPE_PRICE_QUARTERLY_ID` | produção | Price ID recorrente de R$ 69,90 a cada 3 meses. |
-| `STRIPE_PRICE_YEARLY_ID` | produção | Price ID recorrente de R$ 249,90 a cada 12 meses. |
+| `STRIPE_PRICE_QUARTERLY_ID` | produção | Price ID recorrente de R$ 54,90 a cada 3 meses. |
+| `STRIPE_PRICE_YEARLY_ID` | produção | Price ID recorrente de R$ 229,90 a cada 12 meses. |
 | `EMAIL_PROVIDER` | sim | `console` (dev, não envia nada) \| `resend`. |
 | `RESEND_API_KEY` | produção | Envio real de e-mail. |
 | `EMAIL_FROM` | produção | Remetente. |
@@ -263,42 +263,27 @@ interface PaymentProvider {
 
 ### Planos
 
-Três planos recorrentes, definidos em [](src/config/pricing.ts) —
-o único lugar do código que sabe quanto o produto custa:
-
-| Plano | Preço | Cobra a cada | Equivale a | Variável do Price ID |
-| --- | --- | --- | --- | --- |
-| Mensal | R$ 20,90 | 1 mês | R$ 20,90/mês |  |
-| Trimestral | R$ 69,90 | 3 meses | R$ 23,30/mês |  |
-| Anual | R$ 249,90 | 12 meses | R$ 20,83/mês |  |
-
-Os três dão exatamente o mesmo produto; muda só a periodicidade da cobrança.
-
-O navegador escolhe **qual** plano — nunca quanto ele custa. O aceita apenas um id do catálogo e busca o preço no servidor.
-
-Selo de economia só aparece quando existe economia de verdade:
- é negativo para o trimestral (R$ 69,90 contra
-3 × R$ 20,90 = R$ 62,70), e a UI não renderiza nada nesse caso.
-
-### Planos
-
 Três planos recorrentes, definidos em [`src/config/pricing.ts`](src/config/pricing.ts)
 — o único lugar do código que sabe quanto o produto custa:
 
 | Plano | Preço | Cobra a cada | Equivale a | Variável do Price ID |
 | --- | --- | --- | --- | --- |
 | Mensal | R$ 20,90 | 1 mês | R$ 20,90/mês | `STRIPE_PRICE_MONTHLY_ID` |
-| Trimestral | R$ 69,90 | 3 meses | R$ 23,30/mês | `STRIPE_PRICE_QUARTERLY_ID` |
-| Anual | R$ 249,90 | 12 meses | R$ 20,83/mês | `STRIPE_PRICE_YEARLY_ID` |
+| Trimestral | R$ 54,90 | 3 meses | R$ 18,30/mês | `STRIPE_PRICE_QUARTERLY_ID` |
+| Anual | R$ 229,90 | 12 meses | R$ 19,16/mês | `STRIPE_PRICE_YEARLY_ID` |
 
 Os três dão exatamente o mesmo produto; muda só a periodicidade da cobrança.
 
 O navegador escolhe **qual** plano — nunca quanto ele custa. O `/api/checkout`
 aceita apenas um id do catálogo (`z.enum(planIds)`) e busca o preço no servidor.
 
-Selo de economia só aparece quando existe economia de verdade:
-`savingsVsMonthlyCents` é negativo para o trimestral (R$ 69,90 contra
-3 × R$ 20,90 = R$ 62,70), e a UI não renderiza selo nenhum nesse caso.
+Selo de economia só aparece quando existe economia de verdade.
+`savingsVsMonthlyCents` compara o plano com pagar mensal pelo mesmo período:
+R$ 7,80 no trimestral (R$ 54,90 contra 3 × R$ 20,90 = R$ 62,70) e R$ 20,90 no
+anual (R$ 229,90 contra 12 × R$ 20,90 = R$ 250,80 — um mês de graça). A função
+devolve valor **negativo** se um preço futuro ficar acima do mensal equivalente,
+e a UI checa o sinal antes de renderizar o selo: nunca anuncia desconto que não
+existe.
 
 Quando o gateway não informa o fim do período, ele é derivado do plano
 (`periodEndFor`). Um fallback fixo de 31 dias expiraria um assinante anual

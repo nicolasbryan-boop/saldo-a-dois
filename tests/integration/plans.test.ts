@@ -70,7 +70,7 @@ describe('checkout por plano', () => {
   it('usa o catálogo, não um valor vindo de fora', async () => {
     // Only the id travels; the price is always looked up server-side.
     const { checkout } = await buy('anual');
-    expect(checkout.amountCents).toBe(24990);
+    expect(checkout.amountCents).toBe(22990);
     expect(checkout.amountCents).not.toBe(2090);
   });
 });
@@ -154,7 +154,7 @@ describe('troca de plano', () => {
     });
 
     expect(updated.planId).toBe('anual');
-    expect(updated.priceCents).toBe(24990);
+    expect(updated.priceCents).toBe(22990);
 
     // Still exactly one subscription row for the household.
     const rows = await db
