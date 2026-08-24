@@ -174,7 +174,7 @@ describe('cross-household data access', () => {
     );
   });
 
-  it('assigns a movement to the acting household even if a foreign member id is passed', async () => {
+  it('refuses a movement pointed at a member from another household', async () => {
     await expectDenied(
       createTransaction(db, alpha.actor, {
         type: 'expense',
@@ -183,7 +183,7 @@ describe('cross-household data access', () => {
         occurredOn: TODAY,
         memberId: beta.ownerMemberId,
       }),
-      ['validation'],
+      ['forbidden'],
     );
   });
 });

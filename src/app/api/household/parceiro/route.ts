@@ -9,10 +9,8 @@ export const dynamic = 'force-dynamic';
 const schema = z.object({
   name: z.string().trim().min(2, 'Informe o nome').max(80),
   email: z.email('Informe um e-mail válido').max(160),
-  temporaryPassword: z
-    .string()
-    .min(8, 'A senha temporária precisa ter pelo menos 8 caracteres')
-    .max(128),
+  // No password field: the partner chooses their own on the invite page, so
+  // nobody — not even the person inviting — ever knows it.
 });
 
 export const GET = handle(async () => {

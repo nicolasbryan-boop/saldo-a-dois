@@ -1,6 +1,7 @@
 import type { PaymentProvider } from './provider';
 import { MockPaymentProvider } from './providers/mock';
 import { StripePaymentProvider } from './providers/stripe';
+import { MercadoPagoPaymentProvider } from './providers/mercadopago';
 import { readEnv, isProduction, getAppUrl } from '@/server/context';
 import { planIds, planList, type PlanId } from '@/config';
 
@@ -21,6 +22,14 @@ export function getPaymentProvider(env?: Partial<CloudflareEnv>): PaymentProvide
       readEnv(env, 'STRIPE_SECRET_KEY'),
       readEnv(env, 'STRIPE_WEBHOOK_SECRET'),
       stripePriceIds(env),
+    );
+  }
+
+  if (configured === 'mercadopago') {
+    return new MercadoPagoPaymentProvider(
+      readEnv(env, 'MERCADOPAGO_ACCESS_TOKEN'),
+      readEnv(env, 'MERCADOPAGO_PUBLIC_KEY'),
+      readEnv(env, 'MERCADOPAGO_WEBHOOK_SECRET'),
     );
   }
 
@@ -45,8 +54,17 @@ export function stripePriceIds(env?: Partial<CloudflareEnv>): Record<PlanId, str
   return Object.fromEntries(entries) as Record<PlanId, string>;
 }
 
-/** Plans that can actually be sold right now, given the configured prices. */
+/**
+ * Plans that can actually be sold right now.
+ *
+ * Only Stripe needs a per-plan price registered upstream. Mercado Pago and
+ * the mock take the amount from our own catalogue, so every plan is sellable
+ * as soon as the account credentials exist.
+ */
 export function configuredPlanIds(env?: Partial<CloudflareEnv>): PlanId[] {
+  const configured = readEnv(env, 'PAYMENT_PROVIDER') || 'mock';
+  if (configured !== 'stripe') return [...planIds];
+
   const prices = stripePriceIds(env);
   return planIds.filter((id) => prices[id].length > 0);
 }

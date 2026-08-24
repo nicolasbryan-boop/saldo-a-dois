@@ -311,7 +311,6 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
 
   const [name, setName] = React.useState('');
   const [email, setEmail] = React.useState('');
-  const [password, setPassword] = React.useState('');
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<InviteResult | null>(null);
@@ -321,35 +320,21 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
     const timer = window.setTimeout(() => {
       setName('');
       setEmail('');
-      setPassword('');
       setError(null);
       setResult(null);
     }, 200);
     return () => window.clearTimeout(timer);
   }, [open]);
 
-  function suggestPassword() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-    const bytes = new Uint8Array(12);
-    crypto.getRandomValues(bytes);
-    setPassword(Array.from(bytes, (byte) => chars[byte % chars.length]).join(''));
-  }
-
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
-
-    if (password.length < 8) {
-      setError('A senha temporária precisa ter pelo menos 8 caracteres.');
-      return;
-    }
 
     setSaving(true);
     try {
       const response = await api.post<InviteResult>('/api/household/parceiro', {
         name: name.trim(),
         email: email.trim(),
-        temporaryPassword: password,
       });
       setResult(response);
       router.refresh();
@@ -378,28 +363,12 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
           </Button>
         }
       >
-        {result.kind === 'provisioned' ? (
+        {(
           <div className="space-y-4">
             <p className="text-[0.9375rem] leading-relaxed text-ink-700">
-              A conta de <strong>{result.name}</strong> foi criada. Passe estes dados para
-              ele(a) entrar no próprio celular:
-            </p>
-
-            <div className="space-y-2 rounded-lg border border-ink-200 bg-cream-50 p-4">
-              <Row label="E-mail" value={result.email} />
-              <Row label="Senha temporária" value={password} mono />
-            </div>
-
-            <p className="rounded-md bg-money-hold-soft px-3.5 py-3 text-xs leading-relaxed text-[#8a5b02]">
-              No primeiro acesso o app obriga a trocar essa senha. Depois disso a senha
-              temporária deixa de funcionar — então não precisa guardá-la.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <p className="text-[0.9375rem] leading-relaxed text-ink-700">
-              Esse e-mail já tem uma conta no {branding.name}, então não criamos outra nem
-              mexemos na senha dela. Ela precisa aceitar o convite estando logada.
+              Enviamos o convite para <strong>{result.email}</strong>. Ao abrir o link,
+              {' '}{result.name} escolhe a própria senha e faz o próprio cadastro de
+              receitas e gastos. Você não vê essa senha — nem precisa.
             </p>
             {result.emailDelivered === false && (
               <p className="rounded-md bg-money-hold-soft px-3.5 py-3 text-xs leading-relaxed text-[#8a5b02]">
@@ -419,10 +388,10 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
       open={open}
       onClose={onClose}
       title="Adicionar meu parceiro"
-      description="Ele entra com o próprio e-mail e a própria senha."
+      description="Enviamos um convite por e-mail. Ele(a) escolhe a própria senha."
       footer={
         <Button type="submit" form="invite-form" fullWidth size="lg" loading={saving}>
-          Criar acesso
+          Enviar convite
         </Button>
       }
     >
@@ -453,28 +422,6 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
           />
         </Field>
 
-        <Field
-          label="Senha temporária"
-          htmlFor="invite-password"
-          hint="Ele será obrigado a trocar no primeiro acesso."
-        >
-          <div className="flex gap-2">
-            <Input
-              id="invite-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="off"
-              minLength={8}
-              maxLength={128}
-              required
-              className="font-mono"
-            />
-            <Button type="button" variant="secondary" onClick={suggestPassword}>
-              Gerar
-            </Button>
-          </div>
-        </Field>
-
         {error && (
           <p role="alert" className="text-sm font-medium text-money-out">
             {error}
@@ -485,18 +432,3 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <span className="text-xs font-semibold text-ink-500">{label}</span>
-      <span
-        className={cn(
-          'min-w-0 truncate text-sm font-semibold text-ink-900',
-          mono && 'font-mono',
-        )}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}

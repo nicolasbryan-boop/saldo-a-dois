@@ -4,6 +4,9 @@ import { getAppContext } from '@/server/app-context';
 import { loadSnapshot } from '@/domains/financial-engine/load';
 import { listTransactions } from '@/domains/transactions/service';
 import { listGoals } from '@/domains/goals/service';
+import { loadCoupleMoney } from '@/domains/transactions/member-summary';
+import { CoupleMoneyPanel } from '@/components/app/couple-money';
+import { InvitePartnerCard } from '@/components/app/invite-partner-card';
 import { formatBRL } from '@/lib/money';
 import { formatDateBR, hourIn } from '@/lib/dates';
 import { cn } from '@/lib/cn';
@@ -28,7 +31,7 @@ export const dynamic = 'force-dynamic';
 export default async function TodayPage() {
   const context = await getAppContext();
 
-  const [snapshot, recent, goals] = await Promise.all([
+  const [snapshot, recent, goals, coupleMoney] = await Promise.all([
     loadSnapshot(context.db, {
       householdId: context.household.id,
       cycle: context.cycle,
@@ -37,6 +40,11 @@ export default async function TodayPage() {
     }),
     listTransactions(context.db, context.household.id, { limit: 6 }),
     listGoals(context.db, context.household.id),
+    loadCoupleMoney(context.db, {
+      householdId: context.household.id,
+      cycleId: context.cycle.id,
+      actorMemberId: context.actor.memberId,
+    }),
   ]);
 
   const hour = hourIn(context.household.timezone);
@@ -147,6 +155,16 @@ export default async function TodayPage() {
           />
         </div>
       </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Who moved what                                                      */}
+      {/* ------------------------------------------------------------------ */}
+      <CoupleMoneyPanel
+        money={coupleMoney}
+        cycleLabel={`Ciclo de ${formatDateBR(context.cycle.startDate)} a ${formatDateBR(context.cycle.endDate)}.`}
+      />
+
+      {coupleMoney.partner ? null : <InvitePartnerCard />}
 
       {/* ------------------------------------------------------------------ */}
       {/* Next bill                                                           */}

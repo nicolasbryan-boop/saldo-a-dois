@@ -48,7 +48,11 @@ const resolve = cache(async (): Promise<AppContext> => {
   // Onboarding is what decides the cycle start day. Creating a cycle before
   // that would materialise one on the provisional day and leave a stale,
   // overlapping cycle behind the moment the real day is chosen.
-  if (!household.household.onboardingCompletedAt) {
+  //
+  // It is also per person: the partner declares their own income and their own
+  // fixed costs, so a member who has not done it yet is sent to the wizard
+  // even though the household itself is already set up.
+  if (!household.household.onboardingCompletedAt || !household.member.onboardingCompletedAt) {
     throw errors.onboardingRequired();
   }
 

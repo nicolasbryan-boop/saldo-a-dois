@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Field, Input } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { api, ApiClientError } from '@/lib/api-client';
+import { TransparentPayment } from './transparent-payment';
 import { formatBRL } from '@/lib/money';
 import { cn } from '@/lib/cn';
 import {
@@ -21,21 +22,33 @@ import {
 export function CheckoutStart({
   canceled,
   initialPlanId,
+  transparentPublicKey,
 }: {
   canceled: boolean;
   initialPlanId?: string;
+  /** Set when the configured gateway can take the payment on this page. */
+  transparentPublicKey?: string | null;
 }) {
   const [planId, setPlanId] = React.useState<PlanId>(getPlan(initialPlanId).id);
   const [email, setEmail] = React.useState('');
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [payingHere, setPayingHere] = React.useState(false);
 
   const plan = getPlan(planId);
+  const canPayHere = Boolean(transparentPublicKey);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setLoading(true);
+
+    if (canPayHere) {
+      // Nothing is charged yet — this just reveals the payment step below.
+      setPayingHere(true);
+      setLoading(false);
+      return;
+    }
 
     try {
       const result = await api.post<{ checkoutId: string; url: string }>('/api/checkout', {
@@ -50,6 +63,21 @@ export function CheckoutStart({
           ? cause.message
           : 'Não conseguimos iniciar o pagamento. Tente de novo.',
       );
+      setLoading(false);
+    }
+  }
+
+  async function redirectToGateway() {
+    setPayingHere(false);
+    setLoading(true);
+    try {
+      const result = await api.post<{ checkoutId: string; url: string }>('/api/checkout', {
+        email: email.trim(),
+        planId,
+      });
+      window.location.href = result.url;
+    } catch {
+      setError('Não conseguimos iniciar o pagamento. Tente de novo.');
       setLoading(false);
     }
   }
@@ -93,6 +121,23 @@ export function CheckoutStart({
             ))}
           </ul>
 
+          {payingHere && transparentPublicKey ? (
+            <div className="mt-6 border-t border-ink-100 pt-6">
+              <TransparentPayment
+                planId={planId}
+                email={email.trim()}
+                publicKey={transparentPublicKey}
+                onFallback={redirectToGateway}
+              />
+              <button
+                type="button"
+                onClick={() => setPayingHere(false)}
+                className="mt-4 w-full text-center text-xs font-semibold text-ink-500 underline"
+              >
+                Trocar de plano ou e-mail
+              </button>
+            </div>
+          ) : (
           <form onSubmit={submit} className="mt-6 space-y-4 border-t border-ink-100 pt-6">
             <Field
               label="Seu e-mail"
@@ -120,7 +165,8 @@ export function CheckoutStart({
 
             <Button type="submit" size="lg" fullWidth loading={loading}>
               <Lock aria-hidden className="size-4" />
-              Pagar {formatBRL(plan.priceCents)} · plano {plan.name.toLowerCase()}
+              {canPayHere ? 'Continuar para o pagamento' : `Pagar ${formatBRL(plan.priceCents)}`} ·
+              plano {plan.name.toLowerCase()}
             </Button>
 
             <p className="text-center text-xs leading-relaxed text-ink-500">
@@ -129,6 +175,7 @@ export function CheckoutStart({
               vem depois da confirmação do pagamento. Cancele quando quiser.
             </p>
           </form>
+          )}
         </div>
       </Card>
 

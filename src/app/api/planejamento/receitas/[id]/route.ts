@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { handle, jsonOk, readJson, amountCentsSchema } from '@/server/api';
 import { getAppContext } from '@/server/app-context';
 import { updateIncomeSource, deleteIncomeSource } from '@/domains/recurrences/service';
+import { assertOwnsRecurring } from '@/domains/recurrences/service';
+import { resolveOwnMemberId } from '@/domains/transactions/service';
 import { errors } from '@/lib/errors';
 
 export const dynamic = 'force-dynamic';
@@ -21,7 +23,14 @@ export const PATCH = handle(async (request, context) => {
   if (!id) throw errors.notFound();
 
   const body = await readJson(request, schema);
-  const item = await updateIncomeSource(app.db, app.household.id, app.user.id, id, body);
+  await assertOwnsRecurring(app.db, app.actor, 'income', id);
+  const item = await updateIncomeSource(app.db, app.household.id, app.user.id, id, {
+    ...body,
+    memberId:
+      body.memberId === undefined
+        ? undefined
+        : resolveOwnMemberId(app.actor, body.memberId),
+  });
   return jsonOk({ item });
 });
 
@@ -30,6 +39,7 @@ export const DELETE = handle(async (_request, context) => {
   const { id } = await context.params;
   if (!id) throw errors.notFound();
 
+  await assertOwnsRecurring(app.db, app.actor, 'income', id);
   await deleteIncomeSource(app.db, app.household.id, app.user.id, id);
   return jsonOk({ ok: true });
 });

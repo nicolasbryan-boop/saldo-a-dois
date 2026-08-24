@@ -111,28 +111,38 @@ async function resolveCategoryId(
   return null;
 }
 
-/** Validates that a member id, when given, belongs to this household. */
-async function resolveMemberId(
-  db: Database,
-  householdId: string,
-  memberId: string | null | undefined,
-): Promise<string | null> {
-  if (memberId === undefined) return null;
-  if (memberId === null) return null;
+/**
+ * MEMBER-LEVEL AUTHORIZATION
+ * ==========================
+ * Scoping by household is not enough. Both people in a couple share one
+ * household, so a query filtered only by household_id lets one partner move
+ * the other's money. Money belongs to whoever earned or spent it.
+ *
+ * A null owner is a shared/legacy row from before ownership was enforced —
+ * either member may still correct those. Everything created from here on
+ * carries an owner, so that exception only shrinks.
+ */
+export function assertCanWriteMovement(
+  actor: ActorContext,
+  row: { memberId: string | null },
+): void {
+  if (row.memberId === null || row.memberId === actor.memberId) return;
+  throw errors.forbidden('Esse lançamento é do seu parceiro. Só quem lançou pode alterar.');
+}
 
-  const rows = await db
-    .select({ id: householdMembers.id })
-    .from(householdMembers)
-    .where(
-      and(
-        eq(householdMembers.id, memberId),
-        eq(householdMembers.householdId, householdId),
-      ),
-    )
-    .limit(1);
-
-  if (!rows[0]) throw errors.validation('Pessoa não encontrada neste espaço.');
-  return rows[0].id;
+/**
+ * The owner a new movement gets. A member may only launch for themselves, so
+ * a member id sent by the browser is accepted only when it is the actor's own.
+ */
+export function resolveOwnMemberId(
+  actor: ActorContext,
+  requested: string | null | undefined,
+): string {
+  if (requested === undefined || requested === null) return actor.memberId;
+  if (requested !== actor.memberId) {
+    throw errors.forbidden('Você só pode lançar os seus próprios movimentos.');
+  }
+  return actor.memberId;
 }
 
 async function resolveCycleForDate(
@@ -203,10 +213,7 @@ export async function createTransaction(
   const cycle = await resolveCycleForDate(db, actor.household, occurredOn);
   const categoryId = await resolveCategoryId(db, actor.household.id, input);
 
-  const memberId =
-    input.memberId === undefined
-      ? actor.memberId
-      : await resolveMemberId(db, actor.household.id, input.memberId);
+  const memberId = resolveOwnMemberId(actor, input.memberId);
 
   const now = new Date();
   const id = ids.transaction();
@@ -282,6 +289,7 @@ export async function updateTransaction(
   input: UpdateTransactionInput,
 ): Promise<TransactionRow> {
   const existing = await getTransaction(db, actor.household.id, id);
+  assertCanWriteMovement(actor, existing);
 
   const patch: Partial<typeof transactions.$inferInsert> = { updatedAt: new Date() };
 
@@ -297,7 +305,9 @@ export async function updateTransaction(
     });
   }
   if (input.memberId !== undefined) {
-    patch.memberId = await resolveMemberId(db, actor.household.id, input.memberId);
+    // Reassigning to the partner would be laundering the movement across the
+    // ownership boundary this whole function exists to hold.
+    patch.memberId = resolveOwnMemberId(actor, input.memberId);
   }
 
   let affectedFrom = existing.occurredOn;
@@ -343,6 +353,7 @@ export async function deleteTransaction(
   id: string,
 ): Promise<void> {
   const existing = await getTransaction(db, actor.household.id, id);
+  assertCanWriteMovement(actor, existing);
 
   await db
     .delete(transactions)

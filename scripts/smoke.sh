@@ -326,42 +326,67 @@ printf '%s' "$FREE_BEFORE_RESERVE" | grep -qF 'R$ 4.000,00' && ok 'livre para ga
 step '12. Convite do parceiro'
 
 INVITE=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"name\":\"Lucas Teste\",\"email\":\"$PARTNER_EMAIL\",\"temporaryPassword\":\"$PARTNER_TEMP\"}" \
+  -d "{\"name\":\"Lucas Teste\",\"email\":\"$PARTNER_EMAIL\"}" \
   "$BASE/api/household/parceiro")
-check 'parceiro provisionado' "$INVITE" '"kind":"provisioned"'
+check 'convite criado por link' "$INVITE" '"kind":"link"'
+
+INVITE_URL=$(printf '%s' "$INVITE" | json inviteUrl)
+INVITE_TOKEN="$(basename "$INVITE_URL")"
+if [ -n "$INVITE_TOKEN" ]; then ok 'convite trouxe um token'; else bad 'convite sem token' "$INVITE"; fi
+
+# The owner never learns the partner's password, so nothing in this response
+# may be usable to sign in.
+if printf '%s' "$INVITE" | grep -qi 'password'; then
+  bad 'resposta do convite vazou algo de senha' "$INVITE"
+else
+  ok 'convite não expõe senha nenhuma'
+fi
 
 THIRD=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"name\":\"Terceiro\",\"email\":\"terceiro+$STAMP@exemplo.test\",\"temporaryPassword\":\"OutraSenha123\"}" \
+  -d "{\"name\":\"Terceiro\",\"email\":\"terceiro+$STAMP@exemplo.test\"}" \
   "$BASE/api/household/parceiro")
 if [ "$THIRD" = "409" ]; then ok 'terceira pessoa é recusada pelo limite do plano (409)'; else bad 'limite de 2 pessoas deveria bloquear' "recebeu $THIRD"; fi
 
 # ---------------------------------------------------------------------------
 step '13. Primeiro acesso do parceiro'
 
+SHORT_PW=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$INVITE_TOKEN\",\"password\":\"curta\"}" "$BASE/api/convite/criar-conta")
+if [ "$SHORT_PW" = "422" ]; then ok 'senha curta é recusada (422)'; else bad 'senha curta deveria falhar' "recebeu $SHORT_PW"; fi
+
+CREATED=$(curl -s -X POST -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$INVITE_TOKEN\",\"password\":\"$PARTNER_NEW\"}" "$BASE/api/convite/criar-conta")
+check 'parceiro cria a própria conta pelo token' "$CREATED" '"ok":true'
+
+REUSE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
+  -d "{\"token\":\"$INVITE_TOKEN\",\"password\":\"OutraSenha789\"}" "$BASE/api/convite/criar-conta")
+if [ "$REUSE" != "201" ]; then ok "token do convite não pode ser reutilizado ($REUSE)"; else bad 'token do convite foi aceito duas vezes'; fi
+
 curl -s -c "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$PARTNER_EMAIL\",\"password\":\"$PARTNER_TEMP\"}" \
+  -d "{\"email\":\"$PARTNER_EMAIL\",\"password\":\"$PARTNER_NEW\"}" \
   "$BASE/api/auth/sign-in/email" > /dev/null
 
-if grep -q 'session_token' "$PARTNER_JAR"; then ok 'parceiro entrou com a senha temporária'; else bad 'parceiro não conseguiu entrar'; fi
+if grep -q 'session_token' "$PARTNER_JAR"; then ok 'parceiro entra com a senha que escolheu'; else bad 'parceiro não conseguiu entrar'; fi
 
-PARTNER_APP=$(curl -s -o /dev/null -w '%{redirect_url}' -b "$PARTNER_JAR" "$BASE/app")
-check 'parceiro é obrigado a trocar a senha' "$PARTNER_APP" '/trocar-senha'
+PARTNER_ONB=$(curl -s -o /dev/null -w '%{redirect_url}' -b "$PARTNER_JAR" "$BASE/app")
+check 'parceiro é levado ao próprio onboarding' "$PARTNER_ONB" '/onboarding'
 
-CHANGE=$(curl -s -b "$PARTNER_JAR" -c "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"currentPassword\":\"$PARTNER_TEMP\",\"newPassword\":\"$PARTNER_NEW\"}" "$BASE/api/conta/senha")
-check 'parceiro define a própria senha' "$CHANGE" '"ok":true'
+PARTNER_WIZARD=$(curl -s -b "$PARTNER_JAR" "$BASE/onboarding")
+check 'onboarding do parceiro deixa a regra explícita' "$PARTNER_WIZARD" 'Cadastre somente as suas receitas e os seus gastos'
 
-OLD_PASSWORD_LOGIN=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$PARTNER_EMAIL\",\"password\":\"$PARTNER_TEMP\"}" "$BASE/api/auth/sign-in/email")
-if [ "$OLD_PASSWORD_LOGIN" != "200" ]; then ok "senha temporária deixou de funcionar ($OLD_PASSWORD_LOGIN)"; else bad 'senha temporária ainda funciona'; fi
+PARTNER_ONBOARD=$(curl -s -b "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"displayName":"Lucas Parceiro","incomes":[{"name":"Salario do Lucas","amountCents":300000,"dayOfMonth":5}],"bills":[{"name":"Academia do Lucas","amountCents":12000,"dayOfMonth":10}],"goal":null}' \
+  "$BASE/api/onboarding")
+check 'parceiro conclui o próprio onboarding' "$PARTNER_ONBOARD" '"ok":true'
 
-rm -f "$PARTNER_JAR"
-curl -s -c "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"email\":\"$PARTNER_EMAIL\",\"password\":\"$PARTNER_NEW\"}" "$BASE/api/auth/sign-in/email" > /dev/null
+REDO=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"incomes":[],"bills":[],"goal":null}' "$BASE/api/onboarding")
+if [ "$REDO" = "409" ]; then ok 'onboarding não pode ser refeito (409)'; else bad 'onboarding deveria ser único' "recebeu $REDO"; fi
 
 PARTNER_DASH=$(curl -s -b "$PARTNER_JAR" "$BASE/app")
 check 'parceiro vê o mesmo espaço' "$PARTNER_DASH" 'Ana &amp; Lucas'
-check 'parceiro vê o mesmo livre para gastar' "$PARTNER_DASH" 'R$ 4.000,00'
+check 'painel separa o dinheiro de cada um' "$PARTNER_DASH" 'Quem movimentou o quê'
+check 'painel mostra o total do casal' "$PARTNER_DASH" 'Nós dois'
 
 # ---------------------------------------------------------------------------
 step '14. Dados compartilhados entre o casal'
@@ -373,21 +398,74 @@ OWNER_SEES=$(curl -s -b "$OWNER_JAR" "$BASE/api/transactions")
 check 'dono enxerga o lançamento do parceiro' "$OWNER_SEES" 'Gasolina'
 
 OWNER_DASH_SHARED=$(curl -s -b "$OWNER_JAR" "$BASE/app")
-check 'lançamento do parceiro altera o saldo do dono' "$OWNER_DASH_SHARED" 'R$ 3.920,00'
+# The partner's own onboarding added their salary and their gym bill to the
+# household, so this figure is no longer the single-person one.
+OWNER_BALANCE=$(printf '%s' "$OWNER_DASH_SHARED" | grep -o 'R$ [0-9.]*,[0-9]*' | head -1)
+if [ -n "$OWNER_BALANCE" ]; then ok "dono vê um saldo consolidado ($OWNER_BALANCE)"; else bad 'dashboard do dono sem saldo'; fi
+check 'lançamento do parceiro aparece para o dono' "$OWNER_SEES" 'Gasolina'
 
 # ---------------------------------------------------------------------------
-step '15. Permissões dentro do casal'
+step '15. Cada um só mexe no próprio dinheiro'
+
+# The partner's own movement, created by the partner.
+PARTNER_TX=$(curl -s -b "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"type":"expense","amountCents":4500,"description":"Barbeiro do Lucas"}' "$BASE/api/transactions")
+PARTNER_TX_ID=$(printf '%s' "$PARTNER_TX" | json transaction.id)
+if [ -n "$PARTNER_TX_ID" ]; then ok 'parceiro lança o próprio gasto'; else bad 'parceiro não conseguiu lançar' "$PARTNER_TX"; fi
+
+OWNER_TX=$(curl -s -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
+  -d '{"type":"expense","amountCents":6500,"description":"Salao da Ana"}' "$BASE/api/transactions")
+OWNER_TX_ID=$(printf '%s' "$OWNER_TX" | json transaction.id)
+if [ -n "$OWNER_TX_ID" ]; then ok 'dono lança o próprio gasto'; else bad 'dono não conseguiu lançar' "$OWNER_TX"; fi
+
+# Ownership is assigned by the server, from the session — not by the payload.
+OWNER_MEMBER=$(printf '%s' "$OWNER_TX" | json transaction.memberId)
+PARTNER_MEMBER=$(printf '%s' "$PARTNER_TX" | json transaction.memberId)
+if [ -n "$OWNER_MEMBER" ] && [ "$OWNER_MEMBER" != "$PARTNER_MEMBER" ]; then
+  ok 'cada lançamento nasce com o dono certo'
+else
+  bad 'lançamentos não foram atribuídos a pessoas diferentes' "dono=$OWNER_MEMBER parceiro=$PARTNER_MEMBER"
+fi
+
+# THE boundary: same household, different person.
+EDIT_OTHER=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X PATCH -H 'Content-Type: application/json' \
+  -d '{"amountCents":1}' "$BASE/api/transactions/$PARTNER_TX_ID")
+if [ "$EDIT_OTHER" = "403" ]; then ok 'dono não edita o lançamento do parceiro (403)'; else bad 'dono conseguiu editar o lançamento do parceiro' "recebeu $EDIT_OTHER"; fi
+
+DELETE_OTHER=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X DELETE "$BASE/api/transactions/$OWNER_TX_ID")
+if [ "$DELETE_OTHER" = "403" ]; then ok 'parceiro não exclui o lançamento do dono (403)'; else bad 'parceiro conseguiu excluir o lançamento do dono' "recebeu $DELETE_OTHER"; fi
+
+LAUNDER=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X PATCH -H 'Content-Type: application/json' \
+  -d "{\"memberId\":\"$PARTNER_MEMBER\"}" "$BASE/api/transactions/$OWNER_TX_ID")
+if [ "$LAUNDER" = "403" ]; then ok 'não dá para transferir um lançamento para o parceiro (403)'; else bad 'lançamento foi transferido para o outro membro' "recebeu $LAUNDER"; fi
+
+FORGE=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X POST -H 'Content-Type: application/json' \
+  -d "{\"type\":\"expense\",\"amountCents\":9900,\"description\":\"Em nome do outro\",\"memberId\":\"$PARTNER_MEMBER\"}" \
+  "$BASE/api/transactions")
+if [ "$FORGE" = "403" ]; then ok 'não dá para lançar em nome do parceiro (403)'; else bad 'lançou em nome do parceiro' "recebeu $FORGE"; fi
+
+# And each still controls their own.
+OWN_EDIT=$(curl -s -o /dev/null -w '%{http_code}' -b "$OWNER_JAR" -X PATCH -H 'Content-Type: application/json' \
+  -d '{"amountCents":7000}' "$BASE/api/transactions/$OWNER_TX_ID")
+if [ "$OWN_EDIT" = "200" ]; then ok 'cada um edita o que é seu (200)'; else bad 'dono não conseguiu editar o próprio lançamento' "recebeu $OWN_EDIT"; fi
+
+# Both see the couple's whole list, which is the point of a shared space.
+BOTH_SEE=$(curl -s -b "$PARTNER_JAR" "$BASE/api/transactions")
+check 'parceiro enxerga o lançamento do dono' "$BOTH_SEE" 'Salao da Ana'
+
+# ---------------------------------------------------------------------------
+step '16. Permissões de administração do casal'
 
 PARTNER_CANCEL=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X POST "$BASE/api/assinatura/cancelar")
 if [ "$PARTNER_CANCEL" = "403" ]; then ok 'parceiro não gerencia a assinatura (403)'; else bad 'parceiro não deveria cancelar a assinatura' "recebeu $PARTNER_CANCEL"; fi
 
 PARTNER_INVITE=$(curl -s -o /dev/null -w '%{http_code}' -b "$PARTNER_JAR" -X POST -H 'Content-Type: application/json' \
-  -d "{\"name\":\"Alguem\",\"email\":\"alguem+$STAMP@exemplo.test\",\"temporaryPassword\":\"SenhaQualquer1\"}" \
+  -d "{\"name\":\"Alguem\",\"email\":\"alguem+$STAMP@exemplo.test\"}" \
   "$BASE/api/household/parceiro")
 if [ "$PARTNER_INVITE" = "403" ] || [ "$PARTNER_INVITE" = "409" ]; then ok "parceiro não convida terceiros ($PARTNER_INVITE)"; else bad 'parceiro não deveria convidar' "recebeu $PARTNER_INVITE"; fi
 
 # ---------------------------------------------------------------------------
-step '16. Isolamento entre casais'
+step '17. Isolamento entre casais'
 
 curl -s -c "$SEED_JAR" -X POST -H 'Content-Type: application/json' \
   -d '{"email":"ana@exemplo.com","password":"demo123456"}' "$BASE/api/auth/sign-in/email" > /dev/null
@@ -417,7 +495,7 @@ if [ "$STILL_THERE" = "200" ]; then ok 'movimento do dono continua intacto'; els
 curl -s -b "$OWNER_JAR" -X DELETE "$BASE/api/transactions/$VICTIM_ID" > /dev/null
 
 # ---------------------------------------------------------------------------
-step '17. Demais telas do app'
+step '18. Demais telas do app'
 
 check_status 'tela de chat' "$BASE/app/chat" 200 "$OWNER_JAR"
 check_status 'tela de movimentos' "$BASE/app/movimentos" 200 "$OWNER_JAR"
@@ -427,14 +505,16 @@ check_status 'tela de relatório' "$BASE/app/relatorio" 200 "$OWNER_JAR"
 check_status 'tela de conta' "$BASE/app/conta" 200 "$OWNER_JAR"
 
 COUPLE=$(curl -s -b "$OWNER_JAR" "$BASE/app/casal")
-check 'tela do casal lista as duas pessoas' "$COUPLE" 'Lucas Teste'
+# Distinct from the household name 'Ana & Lucas', so this really proves the
+# member row is rendered.
+check 'tela do casal lista as duas pessoas' "$COUPLE" 'Lucas Parceiro'
 check 'tela do casal evita linguagem de fiscalização' "$COUPLE" 'não para prestar contas um ao outro'
 
 REPORT=$(curl -s -b "$OWNER_JAR" "$BASE/app/relatorio")
 check 'relatório traz o resumo do ciclo' "$REPORT" 'Receberam'
 
 # ---------------------------------------------------------------------------
-step '18. Logout e sessão'
+step '19. Logout e sessão'
 
 curl -s -b "$OWNER_JAR" -c "$OWNER_JAR" -X POST \
   -H 'Content-Type: application/json' -H "Origin: $BASE" \

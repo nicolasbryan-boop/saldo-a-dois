@@ -13,7 +13,9 @@ import { isValidAmountCents } from '@/lib/money';
 import type { LocalDate } from '@/lib/dates';
 import { dueDateInCycle } from '@/domains/cycles/cycle-math';
 import { boundsOf, type CycleRow, type HouseholdRow } from '@/domains/cycles/service';
-import { createTransaction, type ActorContext } from '@/domains/transactions/service';
+import { createTransaction, type ActorContext,
+  assertCanWriteMovement,
+} from '@/domains/transactions/service';
 import { writeAudit, trackEvent } from '@/domains/analytics/audit';
 import type { PendingItem } from '@/domains/financial-engine/engine';
 import { chunkRows } from '@/db/batch';
@@ -588,6 +590,7 @@ export async function settleInstance(
   options: { amountCents?: number; occurredOn?: LocalDate } = {},
 ): Promise<void> {
   const instance = await getInstance(db, actor.household.id, instanceId);
+  assertCanWriteMovement(actor, instance);
 
   if (instance.status === 'settled') {
     throw errors.conflict('Este lançamento já foi registrado.');
@@ -671,4 +674,22 @@ export async function unskipInstance(
         eq(recurringInstances.householdId, householdId),
       ),
     );
+}
+
+/**
+ * Recurring sources are per-person too: your salary and your gym bill are
+ * yours. Routes call this before writing, so neither an existing row nor a
+ * create payload can be pointed at the partner.
+ */
+export async function assertOwnsRecurring(
+  db: Database,
+  actor: ActorContext,
+  kind: 'income' | 'expense',
+  id: string,
+): Promise<void> {
+  const row =
+    kind === 'income'
+      ? await getIncomeSource(db, actor.household.id, id)
+      : await getRecurringExpense(db, actor.household.id, id);
+  assertCanWriteMovement(actor, row);
 }

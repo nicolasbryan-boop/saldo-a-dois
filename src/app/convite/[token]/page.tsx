@@ -6,6 +6,8 @@ import { AcceptInvite } from '@/components/auth/accept-invite';
 import { getRuntime } from '@/server/context';
 import { getSessionUser } from '@/domains/auth/session';
 import { findUsableInvite } from '@/domains/households/invites';
+import { findUserByEmail } from '@/domains/households/service';
+import { CreateInvitedAccount } from '@/components/auth/create-invited-account';
 import { households } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 
@@ -51,6 +53,21 @@ export default async function InvitePage({
   const household = (
     await db.select().from(households).where(eq(households.id, invite.householdId)).limit(1)
   )[0];
+
+  // A brand new address sets its own password right here. An address that
+  // already has an account signs in and accepts instead.
+  if (!user && !(await findUserByEmail(db, invite.email))) {
+    return (
+      <AuthShell
+        title="Você foi convidado"
+        subtitle={household ? `Para entrar no espaço "${household.name}"` : undefined}
+      >
+        <Card className="p-7">
+          <CreateInvitedAccount token={token} email={invite.email} name={invite.name} />
+        </Card>
+      </AuthShell>
+    );
+  }
 
   if (!user) {
     return (

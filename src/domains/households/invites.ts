@@ -14,6 +14,7 @@ import { pricing } from '@/config';
 import {
   assertOwner,
   assertCanAddMember,
+  listMembers,
   addMember,
   findUserByEmail,
   findHouseholdForUser,
@@ -49,7 +50,33 @@ export type ProvisionResult =
 export interface ProvisionInput {
   name: string;
   email: string;
-  temporaryPassword: string;
+  /**
+   * Legacy path: the owner sets a first password for the partner. Left in
+   * place for the seed and older callers. When omitted — the normal case —
+   * the partner receives a link and chooses their own password, so no one
+   * else ever knows it.
+   */
+  temporaryPassword?: string;
+}
+
+/**
+ * A pending invite already reserves the second seat.
+ *
+ * Counting only current members would let an owner send any number of
+ * invites: each one looks fine on its own, and the limit would only bite
+ * whoever accepted first. The seat is taken the moment it is promised.
+ */
+async function assertSeatAvailable(db: Database, householdId: string): Promise<void> {
+  await assertCanAddMember(db, householdId);
+
+  const members = await listMembers(db, householdId);
+  const pending = await listPendingInvites(db, householdId);
+
+  if (members.length + pending.length >= pricing.maxMembers) {
+    throw errors.conflict(
+      'Já existe um convite em aberto. Cancele-o antes de convidar outra pessoa.',
+    );
+  }
 }
 
 export async function invitePartner(
@@ -66,7 +93,7 @@ export async function invitePartner(
   const { household, actorUserId, input } = params;
 
   await assertOwner(db, actorUserId, household.id);
-  await assertCanAddMember(db, household.id);
+  await assertSeatAvailable(db, household.id);
 
   const email = input.email.trim().toLowerCase();
   const name = input.name.trim();
@@ -75,18 +102,21 @@ export async function invitePartner(
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw errors.validation('Informe um e-mail válido.');
   }
-  if (input.temporaryPassword.length < 8) {
+  if (input.temporaryPassword !== undefined && input.temporaryPassword.length < 8) {
     throw errors.validation('A senha temporária precisa ter pelo menos 8 caracteres.');
   }
 
   const existing = await findUserByEmail(db, email);
 
-  if (existing) {
-    if (existing.id === actorUserId) {
+  // A link invite covers both cases: an address that already has an account
+  // signs in and accepts; a brand new address sets its own password on the
+  // invite page. Either way the owner never learns the partner's password.
+  if (existing || input.temporaryPassword === undefined) {
+    if (existing && existing.id === actorUserId) {
       throw errors.validation('Esse é o seu próprio e-mail.');
     }
 
-    const currentHousehold = await findHouseholdForUser(db, existing.id);
+    const currentHousehold = existing ? await findHouseholdForUser(db, existing.id) : null;
     if (currentHousehold?.id === household.id) {
       throw errors.conflict('Essa pessoa já faz parte do seu espaço.');
     }
@@ -359,4 +389,93 @@ export async function detachPartner(
     entity: 'household_member',
     entityId: memberId,
   });
+}
+
+/**
+ * Creates the partner's own account straight from the invite token and joins
+ * them to the household.
+ *
+ * The token proves the invite; the password is chosen here and hashed before
+ * it touches storage, so the person who sent the invite never learns it. The
+ * caller signs in afterwards with the same password — this function
+ * deliberately does not mint a session, so Better Auth stays the only thing
+ * that issues one.
+ */
+export async function acceptInviteWithNewAccount(
+  db: Database,
+  params: { token: string; password: string },
+): Promise<{ householdId: string; email: string }> {
+  const invite = await findUsableInvite(db, params.token);
+  if (!invite) throw errors.notFound('Convite inválido, já utilizado ou expirado.');
+
+  if (params.password.length < 8) {
+    throw errors.validation('A senha precisa ter pelo menos 8 caracteres.');
+  }
+
+  const email = invite.email.toLowerCase();
+
+  // Between the invite being sent and opened, the address may have signed up
+  // on its own. Sending them through the sign-in flow is correct then.
+  if (await findUserByEmail(db, email)) {
+    throw errors.conflict('Esse e-mail já tem uma conta. Entre com ela para aceitar.');
+  }
+
+  await assertCanAddMember(db, invite.householdId);
+
+  const now = new Date();
+  const userId = `usr_${randomId(20)}`;
+
+  await db.insert(userTable).values({
+    id: userId,
+    name: invite.name,
+    email,
+    emailVerified: false,
+    // They just chose it themselves, so there is nothing to force.
+    mustChangePassword: false,
+    isAdmin: false,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await db.insert(accountTable).values({
+    id: `acc_${randomId(20)}`,
+    issuer: createLocalAccountIssuer('credential'),
+    accountId: userId,
+    providerId: 'credential',
+    userId,
+    password: await hashPassword(params.password),
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  await addMember(db, {
+    householdId: invite.householdId,
+    userId,
+    displayName: invite.name,
+    role: 'partner',
+    actorUserId: userId,
+  });
+
+  await db
+    .update(partnerInvites)
+    .set({ status: 'accepted', acceptedByUserId: userId, acceptedAt: now })
+    .where(eq(partnerInvites.id, invite.id));
+
+  await writeAudit(db, {
+    householdId: invite.householdId,
+    actorUserId: userId,
+    action: 'partner.joined_via_invite',
+    entity: 'user',
+    entityId: userId,
+    // Deliberately no password material of any kind.
+    meta: { kind: 'link' },
+  });
+
+  await trackEvent(db, {
+    name: 'partner_joined',
+    householdId: invite.householdId,
+    userId,
+  });
+
+  return { householdId: invite.householdId, email };
 }

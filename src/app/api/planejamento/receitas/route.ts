@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { handle, jsonOk, readJson, amountCentsSchema } from '@/server/api';
 import { getAppContext } from '@/server/app-context';
 import { createIncomeSource, listIncomeSources } from '@/domains/recurrences/service';
+import { resolveOwnMemberId } from '@/domains/transactions/service';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,7 +27,7 @@ export const POST = handle(async (request) => {
     context.db,
     context.household.id,
     context.user.id,
-    body,
+    { ...body, memberId: resolveOwnMemberId(context.actor, body.memberId) },
   );
 
   return jsonOk({ item }, { status: 201 });

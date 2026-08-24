@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, isNull, asc } from 'drizzle-orm';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard';
+import { PartnerOnboarding } from '@/components/onboarding/partner-onboarding';
 import { getBaseContext } from '@/server/app-context';
 import { getRuntime } from '@/server/context';
 import { isSubscriptionActive } from '@/domains/billing/subscription';
@@ -17,8 +18,24 @@ export default async function OnboardingPage() {
 
   if (!household) redirect('/checkout');
   if (!isSubscriptionActive(household.subscription)) redirect('/assinatura');
-  if (household.household.onboardingCompletedAt) redirect('/app');
-  if (household.role !== 'owner') redirect('/app');
+  // Per person: the partner gets their own pass through the wizard, with the
+  // household-level steps hidden.
+  if (household.member.onboardingCompletedAt) redirect('/app');
+  const isOwner = household.role === 'owner';
+
+  // Unreachable in practice — a partner can only be invited from inside the
+  // app, which the owner reaches only after finishing. Handled anyway so the
+  // page never renders a wizard with nothing to attach bills to.
+  if (!isOwner && !household.household.onboardingCompletedAt) {
+    return (
+      <AuthShell title="Quase lá">
+        <p className="text-[0.9375rem] leading-relaxed text-ink-700">
+          Quem criou o espaço ainda está terminando a configuração inicial.
+          Assim que terminar, você faz a sua.
+        </p>
+      </AuthShell>
+    );
+  }
 
   const categories = await db
     .select({
@@ -49,15 +66,27 @@ export default async function OnboardingPage() {
 
   return (
     <AuthShell
-      title="Falta pouco para começar"
-      subtitle="São seis perguntas rápidas. Tudo pode ser ajustado depois."
+      title={isOwner ? 'Falta pouco para começar' : 'Agora é a sua vez'}
+      subtitle={
+        isOwner
+          ? 'São seis perguntas rápidas. Tudo pode ser ajustado depois.'
+          : 'Cadastre as suas receitas e os seus gastos. Leva menos de dois minutos.'
+      }
       wide
     >
-      <OnboardingWizard
-        ownerName={household.member.displayName}
-        ownerMemberId={household.member.id}
-        categories={categories}
-      />
+      {isOwner ? (
+        <OnboardingWizard
+          ownerName={household.member.displayName}
+          ownerMemberId={household.member.id}
+          categories={categories}
+        />
+      ) : (
+        <PartnerOnboarding
+          partnerName={household.member.displayName}
+          householdName={household.household.name}
+          categories={categories}
+        />
+      )}
     </AuthShell>
   );
 }

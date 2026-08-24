@@ -5,6 +5,15 @@ import { isAppError } from '@/lib/errors';
 import { requireAdmin } from '@/domains/auth/session';
 import { getRuntime } from '@/server/context';
 import { loadAdminMetrics, type AdminMetrics } from '@/domains/admin/metrics';
+import {
+  loadAdminInsights,
+  listCustomers,
+  loadSystemStatus,
+  type AdminInsights,
+  type CustomerRow,
+  type SystemStatus,
+} from '@/domains/admin/insights';
+import { AdminSections } from '@/components/admin/admin-sections';
 import { Card, SectionTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/primitives';
 import { Logo } from '@/components/marketing/logo';
@@ -30,13 +39,28 @@ const EVENT_LABELS: Record<string, string> = {
   pwa_installed: 'Instalaram o app',
 };
 
-export default async function AdminPage() {
+export default async function AdminPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ busca?: string }>;
+}) {
+  const { busca } = await searchParams;
+  const search = (busca ?? '').slice(0, 80);
+
   let metrics: AdminMetrics;
+  let insights: AdminInsights;
+  let customers: CustomerRow[];
+  let system: SystemStatus;
 
   try {
     await requireAdmin();
-    const { db } = await getRuntime();
-    metrics = await loadAdminMetrics(db);
+    const { db, env } = await getRuntime();
+    [metrics, insights, customers, system] = await Promise.all([
+      loadAdminMetrics(db),
+      loadAdminInsights(db),
+      listCustomers(db, { search }),
+      loadSystemStatus(db, env),
+    ]);
   } catch (error) {
     if (isAppError(error)) {
       if (error.code === 'unauthenticated') redirect('/entrar?proximo=/admin');
@@ -160,6 +184,13 @@ export default async function AdminPage() {
             </ul>
           </Card>
         </section>
+
+        <AdminSections
+          insights={insights}
+          customers={customers}
+          system={system}
+          search={search}
+        />
 
         <section>
           <SectionTitle>Erros recentes</SectionTitle>

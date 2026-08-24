@@ -53,6 +53,12 @@ export const householdMembers = sqliteTable(
     status: text('status', { enum: ['active', 'removed'] })
       .notNull()
       .default('active'),
+    /**
+     * Onboarding is per person, not per household: each member declares their
+     * own income and their own fixed costs. Null means this member has not
+     * done it yet, which is what gates the wizard.
+     */
+    onboardingCompletedAt: integer('onboarding_completed_at', { mode: 'timestamp_ms' }),
     joinedAt: integer('joined_at', { mode: 'timestamp_ms' }).notNull(),
     removedAt: integer('removed_at', { mode: 'timestamp_ms' }),
   },
