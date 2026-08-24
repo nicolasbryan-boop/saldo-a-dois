@@ -1,0 +1,12 @@
+# Copy to `.dev.vars` for `wrangler dev` / `opennextjs-cloudflare preview`.
+# In preview/production use `wrangler secret put <NAME>` instead — never commit.
+BETTER_AUTH_SECRET=""
+BETTER_AUTH_URL="http://localhost:8787"
+NEXT_PUBLIC_APP_URL="http://localhost:8787"
+ADMIN_EMAILS=""
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
+STRIPE_PRICE_ID=""
+RESEND_API_KEY=""
+EMAIL_FROM="Saldo a Dois <nao-responda@example.com>"
+SEED_PASSWORD="demo123456"

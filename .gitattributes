@@ -1,0 +1,23 @@
+# Normalise line endings in the repository to LF.
+#
+# Development here happens on Windows, but the build, the CI and the Cloudflare
+# runtime are all Linux. Committing CRLF would break shell scripts (`smoke.sh`
+# would fail with `\r: command not found`) and make every diff noisy.
+* text=auto eol=lf
+
+# Shell scripts must be LF even if someone's editor disagrees.
+*.sh text eol=lf
+
+# Binary assets: never touch them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Lockfile and generated migrations are diffed rarely; mark them so reviews
+# collapse them by default on GitHub.
+package-lock.json linguist-generated=true
+drizzle/migrations/meta/** linguist-generated=true

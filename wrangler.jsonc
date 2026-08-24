@@ -1,0 +1,76 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "saldo-a-dois",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-03-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "saldo-a-dois-db",
+      // Replace with the id printed by `wrangler d1 create saldo-a-dois-db`.
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "drizzle/migrations"
+    }
+  ],
+  // NOTE: the Workers AI binding lives only in the "preview" and
+  // "production" environments below. Workers AI has no local emulation, so
+  // binding it here would make `next dev` open a remote proxy session and fail
+  // without a Cloudflare API token — taking D1 down with it. Locally the
+  // assistant runs on the deterministic parser, which handles the common cases
+  // and costs nothing.
+  "vars": {
+    "APP_ENV": "development",
+    "AI_PROVIDER": "workers-ai",
+    "PAYMENT_PROVIDER": "mock",
+    "EMAIL_PROVIDER": "console"
+  },
+  "env": {
+    "preview": {
+      "name": "saldo-a-dois-preview",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "saldo-a-dois-db-preview",
+          "database_id": "00000000-0000-4000-8000-000000000002",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ],
+      "ai": { "binding": "AI" },
+      "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+      "vars": {
+        "APP_ENV": "preview",
+        "AI_PROVIDER": "workers-ai",
+        "PAYMENT_PROVIDER": "mock",
+        "EMAIL_PROVIDER": "console"
+      }
+    },
+    "production": {
+      "name": "saldo-a-dois",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "saldo-a-dois-db",
+          "database_id": "00000000-0000-4000-8000-000000000001",
+          "migrations_dir": "drizzle/migrations"
+        }
+      ],
+      "ai": { "binding": "AI" },
+      "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+      "vars": {
+        "APP_ENV": "production",
+        "AI_PROVIDER": "workers-ai",
+        // Must be switched to a real provider before charging anyone.
+        "PAYMENT_PROVIDER": "stripe",
+        "EMAIL_PROVIDER": "resend"
+      }
+    }
+  }
+}
