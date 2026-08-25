@@ -114,6 +114,9 @@ export function TransparentPayment({
         method: 'pix',
         email,
         planId,
+        // Brazilian acquirers usually require the payer's tax id for Pix.
+        payerDocument: document.replace(/\D/g, '') || undefined,
+        payerName: holder.trim() || undefined,
       });
       setPix(result);
     } catch (cause) {
@@ -300,9 +303,38 @@ export function TransparentPayment({
         </div>
 
         {method === 'pix' ? (
-          <Button type="button" fullWidth size="lg" loading={loading} onClick={payWithPix}>
-            Gerar código Pix
-          </Button>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void payWithPix();
+            }}
+            className="space-y-4"
+          >
+            <Field label="Seu nome" htmlFor="pix-nome">
+              <Input
+                id="pix-nome"
+                value={holder}
+                onChange={(e) => setHolder(e.target.value)}
+                autoComplete="name"
+                required
+              />
+            </Field>
+
+            <Field label="Seu CPF" htmlFor="pix-cpf">
+              <Input
+                id="pix-cpf"
+                inputMode="numeric"
+                value={document}
+                onChange={(e) => setDocument(e.target.value)}
+                placeholder="000.000.000-00"
+                required
+              />
+            </Field>
+
+            <Button type="submit" fullWidth size="lg" loading={loading}>
+              Gerar código Pix
+            </Button>
+          </form>
         ) : (
           <form onSubmit={payWithCard} className="space-y-4">
             <Field label="Nome impresso no cartão" htmlFor="card-holder">

@@ -69,7 +69,13 @@ export interface PaymentProvider {
    * Verifies the signature and parses the payload. MUST throw when the
    * signature does not check out — an unverified webhook is not an event.
    */
-  verifyWebhook(rawBody: string, headers: Headers): Promise<WebhookOutcome>;
+  /**
+   * @param url the full request URL. Mercado Pago signs the resource id that
+   *            travels as a query parameter, so the body alone is not enough
+   *            to rebuild the signature. Providers that do not need it ignore
+   *            it.
+   */
+  verifyWebhook(rawBody: string, headers: Headers, url: string): Promise<WebhookOutcome>;
 
   cancelSubscription(providerSubscriptionId: string): Promise<void>;
 
@@ -101,6 +107,12 @@ export interface PixChargeParams {
   /** Shown on the payer's bank statement. */
   description: string;
   notificationUrl: string;
+  /**
+   * Payer tax id (CPF). Brazilian acquirers usually require it for Pix, and
+   * an account configured that way rejects the charge without it.
+   */
+  payerDocument?: string;
+  payerName?: string;
 }
 
 export interface PixCharge {
@@ -119,6 +131,8 @@ export interface CardChargeParams {
   amountCents: number;
   description: string;
   notificationUrl: string;
+  /** Where the browser returns after authorisation. A page, not the webhook. */
+  backUrl: string;
   /** Single-use token minted by the gateway's browser SDK. */
   cardToken: string;
   /** Payer tax id (CPF), required by Brazilian acquirers. */

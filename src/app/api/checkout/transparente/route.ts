@@ -18,6 +18,8 @@ const schema = z.discriminatedUnion('method', [
     method: z.literal('pix'),
     email: z.email('Informe um e-mail válido').max(160),
     planId: z.enum(planIds).default(pricing.defaultPlanId),
+    payerDocument: z.string().min(11).max(20).optional(),
+    payerName: z.string().trim().max(80).optional(),
   }),
   z.object({
     method: z.literal('card'),
@@ -78,6 +80,8 @@ export const POST = handle(async (request) => {
       amountCents: plan.priceCents,
       description,
       notificationUrl,
+      payerDocument: body.payerDocument,
+      payerName: body.payerName,
     });
 
     await attachProviderRef(db, checkout.id, charge.providerRef);
@@ -105,6 +109,7 @@ export const POST = handle(async (request) => {
     amountCents: plan.priceCents,
     description,
     notificationUrl,
+    backUrl: `${appUrl}/checkout/retorno/${checkout.id}`,
     cardToken: body.cardToken,
     payerDocument: body.payerDocument,
     installments: body.installments,

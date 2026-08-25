@@ -41,7 +41,7 @@ export const POST = handle(async (_request, context) => {
   const signature = await MockPaymentProvider.sign(mockSecret(env), payload);
   const headers = new Headers({ 'x-mock-signature': signature });
 
-  const outcome = await provider.verifyWebhook(payload, headers);
+  const outcome = await provider.verifyWebhook(payload, headers, _request.url);
   const result = await applyWebhook(db, provider.id, outcome);
 
   return jsonOk({ ok: true, ...result });

@@ -54,7 +54,10 @@
       "vars": {
         "APP_ENV": "preview",
         "AI_PROVIDER": "workers-ai",
-        "PAYMENT_PROVIDER": "mock",
+        // Sandbox do Mercado Pago vive aqui. Produção segue no Stripe: o
+        // webhook só aceita o provider ativo, então testar o MP exigiria
+        // trocar produção — este ambiente existe exatamente para não trocar.
+        "PAYMENT_PROVIDER": "mercadopago",
         "EMAIL_PROVIDER": "console"
       }
     },

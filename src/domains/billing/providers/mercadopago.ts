@@ -173,7 +173,13 @@ export class MercadoPagoPaymentProvider implements TransparentPaymentProvider {
         transaction_amount: params.amountCents / 100,
         description: params.description,
         payment_method_id: 'pix',
-        payer: { email: params.email },
+        payer: {
+          email: params.email,
+          ...(params.payerName ? { first_name: params.payerName } : {}),
+          ...(params.payerDocument
+            ? { identification: { type: 'CPF', number: params.payerDocument } }
+            : {}),
+        },
         // The correlation key across our whole flow, echoed back on webhooks.
         external_reference: params.checkoutId,
         notification_url: params.notificationUrl,
@@ -226,7 +232,8 @@ export class MercadoPagoPaymentProvider implements TransparentPaymentProvider {
           transaction_amount: params.amountCents / 100,
           currency_id: 'BRL',
         },
-        back_url: params.notificationUrl,
+        // A page the buyer can land on — not the webhook endpoint.
+        back_url: params.backUrl,
         status: 'authorized',
       },
     });
@@ -254,7 +261,11 @@ export class MercadoPagoPaymentProvider implements TransparentPaymentProvider {
    * resource. That is deliberate on their side: it means a forged body cannot
    * assert a payment was approved, because we ask the gateway, not the caller.
    */
-  async verifyWebhook(rawBody: string, headers: Headers): Promise<WebhookOutcome> {
+  async verifyWebhook(
+    rawBody: string,
+    headers: Headers,
+    url: string,
+  ): Promise<WebhookOutcome> {
     this.assertConfigured();
 
     const header = headers.get('x-signature') ?? '';
@@ -283,10 +294,26 @@ export class MercadoPagoPaymentProvider implements TransparentPaymentProvider {
       data?: { id?: string | number };
     };
 
-    const resourceId = String(body.data?.id ?? '');
+    // Mercado Pago signs the id exactly as it appears in the query string
+    // (`?type=payment&data.id=123`), not as it appears in the body. Building
+    // the manifest from the body makes every signature fail. The body is only
+    // a fallback for a delivery that carries no query parameters.
+    let queryId: string | null = null;
+    try {
+      queryId = new URL(url).searchParams.get('data.id');
+    } catch {
+      // A malformed URL should end as a refused signature, not a 500.
+      queryId = null;
+    }
+
+    const resourceId = queryId ?? String(body.data?.id ?? '');
+
+    // Lowercased for the manifest only. A preapproval id is an alphanumeric
+    // hash and IS case sensitive, so every lookup below uses the raw id.
+    const signedId = resourceId.toLowerCase();
     const requestId = headers.get('x-request-id') ?? '';
 
-    const manifest = `id:${resourceId};request-id:${requestId};ts:${timestamp};`;
+    const manifest = `id:${signedId};request-id:${requestId};ts:${timestamp};`;
     const expected = await hmacHex(this.webhookSecret, manifest);
 
     if (!timingSafeEqual(signature, expected)) {

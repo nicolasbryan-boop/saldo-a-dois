@@ -27,7 +27,7 @@ export const POST = handle(async (request, context) => {
   }
 
   const rawBody = await request.text();
-  const outcome = await provider.verifyWebhook(rawBody, request.headers);
+  const outcome = await provider.verifyWebhook(rawBody, request.headers, request.url);
   const result = await applyWebhook(db, provider.id, outcome);
 
   return jsonOk({ received: true, ...result });
