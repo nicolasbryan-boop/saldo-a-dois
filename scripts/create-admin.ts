@@ -1,48 +1,49 @@
 /**
  * ONE-SHOT: cria (ou redefine a senha de) uma conta administrativa.
  *
- *   npm run admin:create -- ainoamesquita@gmail.com            # produção
- *   npm run admin:create -- alguem@exemplo.test --local        # banco local
+ *   npm run admin:create -- ainoamesquita@gmail.com          # produção
+ *   npm run admin:create -- alguem@exemplo.test --local      # ambiente local
  *
- * REGRAS DE SEGREDO
- * =================
- * A senha é digitada num prompt oculto e existe apenas na memória deste
- * processo. Ela nunca é:
- *   - passada por argumento  (ficaria no histórico do shell e em `ps`)
- *   - lida de arquivo ou env (ficaria em disco)
- *   - impressa                (ficaria no log do terminal e no CI)
+ * COMO A SENHA VIAJA
+ * ==================
+ * A senha é digitada num prompt oculto e sai deste processo por um único
+ * caminho: o corpo de um POST HTTPS para /api/auth/sign-up/email, que é o
+ * cadastro normal do Better Auth. Quem faz o hash é o servidor, com o helper
+ * do próprio Better Auth — então nem a senha nem o hash chegam a existir como
+ * argumento de processo, arquivo ou linha de log.
  *
- * O que chega ao banco é só o hash scrypt, gerado pelo mesmo helper que o
- * Better Auth usa no cadastro normal — então a conta criada aqui é
- * indistinguível de uma criada pelo fluxo do produto, e um login comum
- * funciona sobre ela.
+ * POR QUE NÃO `--file`
+ * ====================
+ * `wrangler d1 execute --file` sobe por /d1/database/:id/import, que exige um
+ * API Token; o login OAuth normal do wrangler devolve "Authentication error
+ * [code: 10000]" ali. As consultas deste script usam `--command`, que passa
+ * por /query e funciona com a autenticação OAuth de sempre.
  *
- * O hash trafega num arquivo temporário porque passá-lo em `--command` o
- * exporia na lista de processos. O arquivo é apagado em `finally`, inclusive
- * quando o wrangler falha.
+ * O que vai em `--command` é apenas o e-mail — nunca senha, nunca hash.
  *
  * PRIVILÉGIO
  * ==========
- * Este script NÃO marca `is_admin`. O acesso ao /admin continua vindo de
- * ADMIN_EMAILS, que é a configuração do ambiente — assim revogar um admin é
- * editar uma variável, não caçar uma linha no banco.
+ * Este script não escreve `is_admin`. Não precisa: o campo é declarado com
+ * `input: false` no Better Auth, então o cadastro sempre grava 0 e nenhum
+ * cliente consegue se promover. O acesso ao /admin continua vindo de
+ * ADMIN_EMAILS, que é configuração de ambiente — revogar um admin é editar uma
+ * variável, não caçar uma linha no banco.
  *
- * Nenhuma assinatura, espaço financeiro ou onboarding é criado: /admin não
- * depende de nada disso, e uma conta de operação não deveria aparecer nas
- * métricas de clientes.
+ * O cadastro não cria espaço financeiro nem assinatura (não há databaseHooks
+ * no Better Auth deste projeto), então uma conta de operação não aparece nas
+ * métricas de clientes e não passa a valer como cliente pagante.
  */
 
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as readline from 'node:readline';
-import { hashPassword } from 'better-auth/crypto';
-import { createLocalAccountIssuer } from '@better-auth/core/db';
 
 const DB_NAME = 'saldo-a-dois-db';
+const PRODUCTION_URL = 'https://saldo-a-dois.ainoamesquita.workers.dev';
+const LOCAL_URL = 'http://localhost:8788';
 const MIN_PASSWORD_LENGTH = 8;
+
+const WRANGLER = join(process.cwd(), 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 
 function fail(message: string): never {
   console.error(`\n✖ ${message}\n`);
@@ -84,105 +85,210 @@ function promptHidden(question: string): Promise<string> {
   });
 }
 
-/** Single-quoted SQL literal. Emails and ids only — never the password. */
+/**
+ * Runs one statement against D1 and returns the rows.
+ *
+ * Spawned as `node wrangler.js` rather than `npx`, with no shell: on Windows
+ * `npx` is a .cmd, which modern Node refuses to spawn without one, and a shell
+ * would reintroduce quoting and injection questions for no benefit.
+ */
+function query(sql: string, local: boolean): Array<Record<string, unknown>> {
+  const result = spawnSync(
+    process.execPath,
+    [
+      WRANGLER,
+      'd1',
+      'execute',
+      DB_NAME,
+      local ? '--local' : '--remote',
+      '--json',
+      `--command=${sql}`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' },
+  );
+
+  if (result.status !== 0) {
+    console.error(result.stderr ?? '');
+    fail('A consulta ao D1 falhou. Nada foi alterado.');
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout) as Array<{
+      results?: Array<Record<string, unknown>>;
+    }>;
+    return parsed[0]?.results ?? [];
+  } catch {
+    fail('Não consegui interpretar a resposta do D1.');
+  }
+}
+
+/** Single-quoted SQL literal. Only e-mails go through here. */
 function sqlString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+interface AccountState {
+  exists: boolean;
+  households: number;
+  subscriptions: number;
+}
+
+function inspect(email: string, local: boolean): AccountState {
+  const rows = query(
+    `SELECT
+       (SELECT COUNT(*) FROM user WHERE lower(email) = ${sqlString(email)}) AS users,
+       (SELECT COUNT(*) FROM household_members m JOIN user u ON u.id = m.user_id
+         WHERE lower(u.email) = ${sqlString(email)}) AS households,
+       (SELECT COUNT(*) FROM subscriptions s JOIN user u ON u.id = s.owner_user_id
+         WHERE lower(u.email) = ${sqlString(email)}) AS subs;`,
+    local,
+  );
+
+  const row = rows[0] ?? {};
+  return {
+    exists: Number(row.users ?? 0) > 0,
+    households: Number(row.households ?? 0),
+    subscriptions: Number(row.subs ?? 0),
+  };
+}
+
 /**
- * Everything that touches the database, separated from the prompt so it can
- * be exercised by a test without a terminal. The password arrives as an
- * argument here and nowhere else — this function is not the CLI surface.
+ * Creates the account through the product's own sign-up endpoint.
+ *
+ * This is the whole reason the password never needs to be hashed here: it goes
+ * over TLS and Better Auth does the rest, exactly as it would for a customer.
+ */
+async function signUp(params: {
+  appUrl: string;
+  email: string;
+  password: string;
+}): Promise<void> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${params.appUrl}/api/auth/sign-up/email`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Better Auth checks this against trustedOrigins.
+        Origin: params.appUrl,
+      },
+      body: JSON.stringify({
+        name: 'Administrador',
+        email: params.email,
+        password: params.password,
+      }),
+    });
+  } catch {
+    fail(`Não consegui falar com ${params.appUrl}. O app está no ar?`);
+  }
+
+  if (response.ok) return;
+
+  // The body may echo the submitted values, so only the status and a known
+  // error code are ever surfaced.
+  let code = '';
+  try {
+    const body = (await response.json()) as { code?: string };
+    code = typeof body.code === 'string' ? body.code : '';
+  } catch {
+    code = '';
+  }
+
+  if (response.status === 403) {
+    fail(
+      `O app recusou a origem ${params.appUrl}. Confira BETTER_AUTH_URL / NEXT_PUBLIC_APP_URL.`,
+    );
+  }
+
+  fail(`O cadastro falhou (HTTP ${response.status}${code ? `, ${code}` : ''}).`);
+}
+
+/**
+ * Everything except the prompt, so a test can drive it without a terminal.
+ *
+ * The password is a parameter here and nowhere else: this is not the CLI
+ * surface, and nothing in this function writes it to disk, argv or a log.
  */
 export async function provisionAdmin(params: {
   email: string;
   password: string;
   local: boolean;
-}): Promise<void> {
-  const { email, password, local } = params;
+  appUrl: string;
+  /** Already-collected state, so the CLI can warn before asking for a password. */
+  before?: AccountState;
+}): Promise<AccountState & { isAdmin: number }> {
+  const { email, password, local, appUrl } = params;
+  const before = params.before ?? inspect(email, local);
 
-  const passwordHash = await hashPassword(password);
-  const issuer = createLocalAccountIssuer('credential');
-  const now = Date.now();
+  if (before.exists && (before.households > 0 || before.subscriptions > 0)) {
+    fail(
+      `${email} já é cliente (${before.households} espaço(s), ${before.subscriptions} assinatura(s)).\n` +
+        '  Use "esqueci minha senha" no app. Nada foi alterado.',
+    );
+  }
 
-  // Stable ids so re-running this is an update, not a second account.
-  const userId = `usr_admin_${randomBytes(10).toString('hex')}`;
-  const accountId = `acc_admin_${randomBytes(10).toString('hex')}`;
+  if (before.exists) {
+    // Only reached for an account with no financial data, checked just above.
+    // Better Auth refuses to sign up an e-mail that already exists, so a reset
+    // means clearing the rows first.
+    query(
+      `DELETE FROM session WHERE user_id IN (SELECT id FROM user WHERE lower(email) = ${sqlString(email)});`,
+      local,
+    );
+    query(
+      `DELETE FROM account WHERE user_id IN (SELECT id FROM user WHERE lower(email) = ${sqlString(email)});`,
+      local,
+    );
+    query(`DELETE FROM user WHERE lower(email) = ${sqlString(email)};`, local);
+  }
 
-  const sql = `
--- Cria a conta se não existir. Um segundo run não duplica nada.
-INSERT INTO user (id, name, email, email_verified, must_change_password, is_admin, created_at, updated_at)
-SELECT ${sqlString(userId)}, 'Administrador', ${sqlString(email)}, 0, 0, 0, ${now}, ${now}
-WHERE NOT EXISTS (SELECT 1 FROM user WHERE lower(email) = ${sqlString(email)});
+  await signUp({ appUrl, email, password });
 
--- Credencial local, no mesmo formato que o Better Auth grava num cadastro normal.
-INSERT INTO account (id, issuer, account_id, provider_id, user_id, password, created_at, updated_at)
-SELECT ${sqlString(accountId)}, ${sqlString(issuer)}, u.id, 'credential', u.id, ${sqlString(passwordHash)}, ${now}, ${now}
-FROM user u
-WHERE lower(u.email) = ${sqlString(email)}
-  AND NOT EXISTS (
-    SELECT 1 FROM account a WHERE a.user_id = u.id AND a.provider_id = 'credential'
+  const after = inspect(email, local);
+  if (!after.exists) fail('O cadastro respondeu OK mas a conta não apareceu no banco.');
+
+  const check = query(
+    `SELECT is_admin FROM user WHERE lower(email) = ${sqlString(email)};`,
+    local,
   );
 
--- Se a conta já existia, isto é uma redefinição de senha.
-UPDATE account
-SET password = ${sqlString(passwordHash)}, updated_at = ${now}
-WHERE provider_id = 'credential'
-  AND user_id IN (SELECT id FROM user WHERE lower(email) = ${sqlString(email)});
-
--- Uma senha recém-escolhida pela própria pessoa não precisa ser trocada.
-UPDATE user SET must_change_password = 0, updated_at = ${now}
-WHERE lower(email) = ${sqlString(email)};
-`;
-
-  // The hash goes through a file rather than --command: an argument would be
-  // visible to anything that can list processes.
-  const dir = mkdtempSync(join(tmpdir(), 'saldo-admin-'));
-  const file = join(dir, 'admin.sql');
-
-  try {
-    writeFileSync(file, sql, { encoding: 'utf8' });
-
-    const wranglerArgs = [
-      'wrangler',
-      'd1',
-      'execute',
-      DB_NAME,
-      local ? '--local' : '--remote',
-      `--file=${file}`,
-    ];
-
-    const result = spawnSync('npx', wranglerArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: true,
-      encoding: 'utf8',
-    });
-
-    if (result.status !== 0) {
-      console.error(result.stdout ?? '');
-      console.error(result.stderr ?? '');
-      fail('O wrangler falhou. Nada foi confirmado.');
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  return { ...after, isAdmin: Number(check[0]?.is_admin ?? 0) };
 }
+
+export function resolveAppUrl(local: boolean, override?: string): string {
+  return (override ?? (local ? LOCAL_URL : PRODUCTION_URL)).replace(/\/+$/, '');
+}
+
+export { inspect };
 
 async function main() {
   const args = process.argv.slice(2);
   const local = args.includes('--local');
+  const appFlag = args.find((arg) => arg.startsWith('--app='))?.slice('--app='.length);
   const email = args.find((arg) => !arg.startsWith('--'))?.trim().toLowerCase();
 
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    fail('Uso: npm run admin:create -- <e-mail> [--local]');
+    fail('Uso: npm run admin:create -- <e-mail> [--local] [--app=<url>]');
   }
+
+  const appUrl = resolveAppUrl(local, appFlag);
 
   console.log(`\nConta administrativa em ${local ? 'LOCAL' : 'PRODUÇÃO'}`);
   console.log(`E-mail: ${email}`);
+  console.log(`App:    ${appUrl}`);
+
+  // Checked before asking for a password, so a refusal costs nothing.
+  const before = inspect(email, local);
+
+  if (before.exists && before.households === 0 && before.subscriptions === 0) {
+    console.log('\nA conta já existe e não tem espaço nem assinatura: a senha será redefinida.');
+  }
+
   console.log(
     '\nA senha não aparece na tela, não vai para o histórico do shell e não é gravada em disco.',
   );
-  console.log('Só o hash chega ao banco.\n');
+  console.log('Ela viaja só no corpo do POST HTTPS de cadastro; quem faz o hash é o app.\n');
 
   const password = await promptHidden('Senha: ');
   const confirmation = await promptHidden('Repita a senha: ');
@@ -192,13 +298,12 @@ async function main() {
     fail(`A senha precisa ter pelo menos ${MIN_PASSWORD_LENGTH} caracteres.`);
   }
 
-  await provisionAdmin({ email, password, local });
+  const result = await provisionAdmin({ email, password, local, appUrl, before });
 
   console.log(`\n✓ Conta pronta para ${email}.`);
-  console.log('\nFalta um passo, fora do código:');
-  console.log(`  npx wrangler secret put ADMIN_EMAILS --env production`);
-  console.log(`  (valor: ${email} — vários e-mails separados por vírgula)\n`);
-  console.log('Depois entre em /entrar e vá para /admin.\n');
+  console.log(`  is_admin: ${result.isAdmin} (o privilégio vem de ADMIN_EMAILS)`);
+  console.log(`  espaços: ${result.households} · assinaturas: ${result.subscriptions}`);
+  console.log(`\nEntre em ${appUrl}/entrar e vá para /admin.\n`);
 }
 
 // Só executa como CLI: importar este módulo num teste não dispara prompt.
