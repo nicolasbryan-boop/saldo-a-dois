@@ -114,12 +114,31 @@ export class MercadoPagoPaymentProvider implements TransparentPaymentProvider {
     }
 
     if (!response.ok) {
-      // Surface the gateway's own message; it is written for the payer.
-      const message =
-        typeof payload.message === 'string'
-          ? payload.message
-          : `Mercado Pago respondeu ${response.status}.`;
-      throw errors.internal(message);
+      // Mercado Pago puts the actionable part in `cause`, not in `message`:
+      // `message` is often just "Invalid request". Without the causes a
+      // failure is undebuggable from the outside, which is exactly the state
+      // this integration was in the first time it was pointed at a real
+      // account.
+      const causes = Array.isArray(payload.cause)
+        ? (payload.cause as Array<Record<string, unknown>>)
+            .map((item) =>
+              [item.code, item.description ?? item.message].filter(Boolean).join(' '),
+            )
+            .filter(Boolean)
+        : [];
+
+      const detail =
+        causes.length > 0
+          ? causes.join(' · ')
+          : typeof payload.message === 'string'
+            ? payload.message
+            : typeof payload.error === 'string'
+              ? payload.error
+              : '';
+
+      throw errors.internal(
+        `Mercado Pago recusou (${response.status})${detail ? `: ${detail}` : '.'}`.slice(0, 400),
+      );
     }
 
     return payload;

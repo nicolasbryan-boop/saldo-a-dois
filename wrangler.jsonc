@@ -78,8 +78,11 @@
       "vars": {
         "APP_ENV": "production",
         "AI_PROVIDER": "workers-ai",
-        // Must be switched to a real provider before charging anyone.
-        "PAYMENT_PROVIDER": "stripe",
+        // Mercado Pago: checkout transparente, Pix e cartão dentro do site.
+        // O Stripe segue inteiro no código — trocar de volta é editar esta
+        // linha. Só um provider fica ativo por vez, porque a rota de webhook
+        // aceita apenas o ativo.
+        "PAYMENT_PROVIDER": "mercadopago",
         "EMAIL_PROVIDER": "resend"
       }
     }
