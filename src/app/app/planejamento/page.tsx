@@ -7,6 +7,7 @@ import {
   listInstances,
 } from '@/domains/recurrences/service';
 import { listGoals } from '@/domains/goals/service';
+import { loadCoupleGoals } from '@/domains/goals/progress';
 import { categories as categoriesTable } from '@/db/schema';
 import { PlanningView } from '@/components/app/planning-view';
 import type { LocalDate } from '@/lib/dates';
@@ -17,10 +18,11 @@ export const dynamic = 'force-dynamic';
 export default async function PlanningPage() {
   const context = await getAppContext();
 
-  const [bills, incomes, goals, instances, categoryRows] = await Promise.all([
+  const [bills, incomes, goals, coupleGoals, instances, categoryRows] = await Promise.all([
     listRecurringExpenses(context.db, context.household.id),
     listIncomeSources(context.db, context.household.id),
     listGoals(context.db, context.household.id),
+    loadCoupleGoals(context.db, context.household.id),
     listInstances(context.db, context.household.id, context.cycle.id, ['pending']),
     context.db
       .select({
@@ -66,6 +68,7 @@ export default async function PlanningPage() {
         currentCents: goal.currentCents,
         monthlyPlanCents: goal.monthlyPlanCents,
       }))}
+      coupleGoals={coupleGoals}
       instances={instances.map((instance) => ({
         id: instance.id,
         name: instance.name,

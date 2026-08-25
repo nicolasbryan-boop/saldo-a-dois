@@ -57,12 +57,13 @@ export function buildSystemPrompt(today: string): string {
     'Responda SOMENTE com JSON válido, sem texto antes ou depois, sem markdown.',
     '',
     'Formato:',
-    '{"type": "...", "amount": <número em reais>, "category": "<slug>", "description": "<curta>", "date": "AAAA-MM-DD", "period": "today|week|cycle|previous_cycle"}',
+    '{"type": "...", "amount": <número em reais>, "category": "<slug>", "description": "<curta>", "date": "AAAA-MM-DD", "period": "today|week|cycle|previous_cycle", "goal": "<nome da meta>", "target": <valor alvo em reais>}',
     '',
     'Tipos possíveis:',
     '- create_expense: a pessoa gastou dinheiro',
     '- create_income: a pessoa recebeu dinheiro',
-    '- create_reserve: a pessoa guardou dinheiro',
+    '- create_reserve: a pessoa guardou/reservou dinheiro (use "goal" com o nome da meta, se ela disser)',
+    '- create_goal: a pessoa quer criar uma meta nova (use "goal" e, se houver, "target")',
     '- query_free_balance: quanto ainda pode gastar',
     '- query_balance: qual o saldo',
     '- query_daily_limit: quanto por dia',
@@ -83,6 +84,8 @@ export function buildSystemPrompt(today: string): string {
     '- Nunca invente saldos, totais ou contas. Você apenas classifica a frase.',
     '- Se a frase não tiver valor e for um lançamento, use unknown.',
     `- Hoje é ${today}. Use essa data quando a frase não disser outra.`,
+    '- "goal" é o nome da meta como a pessoa falou. Não invente meta: se ela não disser qual, deixe null.',
+    '- "guardar/reservar/juntar/separar" é create_reserve. "criar meta/quero juntar para" é create_goal.',
     '- Na dúvida, responda {"type":"unknown"}.',
   ].join('\n');
 }
@@ -138,8 +141,18 @@ export function normalizeLlmAction(raw: unknown): AssistantAction {
       if (amountCents === null) return UNKNOWN_ACTION;
       candidate.amountCents = amountCents;
       candidate.description = description;
+      // Left null when the person did not name a goal; the executor asks.
+      candidate.goalName = value.goal?.trim() || null;
       if (value.date) candidate.date = value.date;
       break;
+
+    case 'create_goal': {
+      const goalName = value.goal?.trim();
+      if (!goalName) return UNKNOWN_ACTION;
+      candidate.goalName = goalName;
+      candidate.targetCents = toCents(value.target) ?? amountCents ?? null;
+      break;
+    }
 
     case 'simulate_spend':
       if (amountCents === null) return UNKNOWN_ACTION;

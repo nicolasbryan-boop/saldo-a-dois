@@ -51,6 +51,18 @@ export const assistantActionSchema = z.discriminatedUnion('type', [
     amountCents,
     description,
     date: localDate.optional(),
+    /**
+     * Which goal receives the money, as the person typed it. Resolved to a
+     * real goal by the executor, which asks when it cannot be sure — money
+     * landing in the wrong goal is worse than one extra question.
+     */
+    goalName: z.string().trim().max(80).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal('create_goal'),
+    goalName: z.string().trim().min(1).max(80),
+    /** Null when the person named a goal but no target yet. */
+    targetCents: amountCents.nullable().optional(),
   }),
   z.object({ type: z.literal('query_free_balance') }),
   z.object({ type: z.literal('query_balance') }),
@@ -87,6 +99,7 @@ export const MUTATING_ACTIONS: AssistantActionType[] = [
   'create_expense',
   'create_income',
   'create_reserve',
+  'create_goal',
 ];
 
 export function isMutating(action: AssistantAction): boolean {
@@ -108,6 +121,10 @@ export const llmActionSchema = z.object({
   date: z.string().nullable().optional(),
   period: z.string().nullable().optional(),
   whose: z.string().nullable().optional(),
+  /** Goal the person named, for create_reserve and create_goal. */
+  goal: z.string().nullable().optional(),
+  /** Target amount in reais, for create_goal. */
+  target: z.union([z.number(), z.string()]).nullable().optional(),
 });
 
 export type LlmAction = z.infer<typeof llmActionSchema>;

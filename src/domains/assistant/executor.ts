@@ -1,4 +1,3 @@
-import { eq, and } from 'drizzle-orm';
 import type { AppContext } from '@/server/app-context';
 import type { AssistantAction } from './actions';
 import { categoryLabel } from './parser';
@@ -13,8 +12,8 @@ import {
   spentInCategory,
   totalSpentBetween,
 } from '@/domains/transactions/service';
-import { listGoals } from '@/domains/goals/service';
-import { goals as goalsTable } from '@/db/schema';
+import { listGoals, createGoal, contributeToGoal } from '@/domains/goals/service';
+import { matchGoalByName } from '@/domains/goals/progress';
 import { findPreviousCycle } from '@/domains/cycles/service';
 import { branding } from '@/config';
 
@@ -171,26 +170,62 @@ export async function executeAction(
 
     case 'create_reserve': {
       const activeGoals = await listGoals(db, household.id);
-      const target = activeGoals[0];
 
-      const transaction = await createTransaction(db, context.actor, {
-        type: 'reserve',
-        amountCents: action.amountCents,
-        description: target ? `Guardado: ${target.name}` : action.description,
-        occurredOn: action.date as LocalDate | undefined,
-        goalId: target?.id ?? null,
-        source: 'assistant',
-      });
-
-      if (target) {
-        await db
-          .update(goalsTable)
-          .set({
-            currentCents: target.currentCents + action.amountCents,
-            updatedAt: new Date(),
-          })
-          .where(and(eq(goalsTable.id, target.id), eq(goalsTable.householdId, household.id)));
+      // Saving money without saying where it goes used to land in whichever
+      // goal happened to be first. That is a silent wrong answer about
+      // someone's money, so the assistant now asks instead.
+      if (activeGoals.length === 0) {
+        return {
+          text: [
+            `Você quer guardar **${formatBRL(action.amountCents)}**, mas vocês ainda não têm nenhuma meta.`,
+            '',
+            'Me diga o nome e o valor e eu crio: *"criar meta viagem de 3 mil"*.',
+          ].join('\n'),
+        };
       }
+
+      let target: (typeof activeGoals)[number] | null = null;
+
+      if (action.goalName) {
+        const { match } = matchGoalByName(activeGoals, action.goalName);
+        if (match) {
+          target = match;
+        } else {
+          return {
+            text: [
+              `Não achei uma meta chamada "${action.goalName}".`,
+              '',
+              'Metas de vocês:',
+              ...activeGoals.map((goal) => `- ${goal.name}`),
+              '',
+              'Diga em qual guardar, ou peça para criar uma nova.',
+            ].join('\n'),
+          };
+        }
+      } else {
+        // No goal named: always ask, even when there is only one. Guessing
+        // where someone's money went is not a shortcut worth taking.
+        return {
+          text: [
+            `Em qual meta você quer guardar **${formatBRL(action.amountCents)}**?`,
+            '',
+            ...activeGoals.map((goal) => `- ${goal.name}`),
+            '',
+            `Ex.: *"guardar ${Math.round(action.amountCents / 100)} para ${activeGoals[0]!.name.toLowerCase()}"*.`,
+          ].join('\n'),
+        };
+      }
+
+      // Goes through the goals service so the contribution row exists: that
+      // row is what makes the money show up in the goal's history and in each
+      // person's share of it.
+      await contributeToGoal(
+        db,
+        context.actor,
+        target.id,
+        action.amountCents,
+        action.date as LocalDate | undefined,
+      );
 
       const snapshot = await loadSnapshot(db, {
         householdId: household.id,
@@ -199,13 +234,64 @@ export async function executeAction(
         today: context.today,
       });
 
+      const saved = target.currentCents + action.amountCents;
+      const percent =
+        target.targetCents > 0
+          ? Math.min(100, Math.round((saved / target.targetCents) * 100))
+          : 0;
+
       return {
-        transactionId: transaction.id,
         text: [
-          `🎯 Guardado: **${formatBRL(action.amountCents)}**${target ? ` para "${target.name}"` : ''}.`,
+          `🎯 Guardado: **${formatBRL(action.amountCents)}** em "${target.name}".`,
           '',
-          `Reserva do ciclo: ${formatBRL(snapshot.reservedCents)} de ${formatBRL(snapshot.plannedReserveCents)}.`,
+          `${formatBRL(saved)} de ${formatBRL(target.targetCents)} · ${percent}%`,
           freeLine(snapshot.freeToSpendCents),
+        ].join('\n'),
+        highlight: {
+          label: target.name,
+          value: `${percent}%`,
+          tone: 'positive',
+        },
+      };
+    }
+
+    case 'create_goal': {
+      const existing = await listGoals(db, household.id);
+      const { match } = matchGoalByName(existing, action.goalName);
+
+      if (match) {
+        return {
+          text: [
+            `Vocês já têm a meta "${match.name}".`,
+            '',
+            `${formatBRL(match.currentCents)} de ${formatBRL(match.targetCents)} guardados.`,
+            '',
+            `Para somar: *"guardar 100 para ${match.name.toLowerCase()}"*.`,
+          ].join('\n'),
+        };
+      }
+
+      if (!action.targetCents) {
+        return {
+          text: [
+            `Quanto vocês querem juntar para "${action.goalName}"?`,
+            '',
+            `Ex.: *"criar meta ${action.goalName} de 3 mil"*.`,
+          ].join('\n'),
+        };
+      }
+
+      const goal = await createGoal(db, household.id, context.actor.userId, {
+        name: action.goalName,
+        targetCents: action.targetCents,
+      });
+
+      return {
+        text: [
+          `✨ Meta criada: **${goal.name}** — ${formatBRL(goal.targetCents)}.`,
+          '',
+          `Agora é só dizer *"guardar 100 para ${goal.name.toLowerCase()}"*.`,
+          'Os dois de vocês podem colocar dinheiro nela.',
         ].join('\n'),
       };
     }

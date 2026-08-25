@@ -3,15 +3,14 @@
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { UserPlus, Copy, Check, Trash2, Crown, Heart } from 'lucide-react';
-import { cn } from '@/lib/cn';
 import { Card, SectionTitle } from '@/components/ui/card';
+import { CoupleSides, SharedGoals, type CoupleSidesProps } from './couple-sides';
 import { Sheet, ConfirmSheet } from '@/components/ui/sheet';
 import { Field, Input } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { Avatar, Badge, EmptyState } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiClientError } from '@/lib/api-client';
-import { formatBRL } from '@/lib/money';
 import { branding, pricing } from '@/config';
 
 export interface CoupleMember {
@@ -31,6 +30,10 @@ export interface CoupleViewProps {
   cycleLabel: string;
   isOwner: boolean;
   currentMemberId: string;
+  /** Each person's money, side by side, plus the couple total. */
+  sides: CoupleSidesProps;
+  /** Goals belong to the household; both sides can add to them. */
+  sharedGoals: React.ComponentProps<typeof SharedGoals>['goals'];
   pendingInvites: Array<{ id: string; email: string; name: string; token: string }>;
   /** Only present outside production, where e-mail may not be configured. */
   appUrl: string;
@@ -62,9 +65,6 @@ export function CoupleView(props: CoupleViewProps) {
   }
 
   const canInvite = props.isOwner && props.members.length < pricing.maxMembers;
-  const totalSpent =
-    props.members.reduce((sum, member) => sum + member.spentCents, 0) +
-    props.sharedSpentCents;
 
   return (
     <div className="space-y-6">
@@ -108,6 +108,22 @@ export function CoupleView(props: CoupleViewProps) {
       )}
 
       <section>
+        <SectionTitle>O dinheiro de cada um</SectionTitle>
+        <CoupleSides {...props.sides} />
+        {/* Putting both sides next to each other is exactly where this needs
+            saying: the split is here to plan together, not to audit. */}
+        <p className="mt-3 text-xs leading-relaxed text-ink-500">
+          Cada um lança o que é seu. Isso existe para vocês enxergarem o todo juntos, não
+          para prestar contas um ao outro.
+        </p>
+      </section>
+
+      <section>
+        <SectionTitle>Metas do casal</SectionTitle>
+        <SharedGoals goals={props.sharedGoals} />
+      </section>
+
+      <section>
         <SectionTitle>Quem está aqui</SectionTitle>
         <div className="space-y-3">
           {props.members.map((member) => (
@@ -132,10 +148,6 @@ export function CoupleView(props: CoupleViewProps) {
                       Parceiro
                     </>
                   )}
-                </p>
-                <p className="tabular mt-1.5 text-[0.9375rem] font-semibold text-ink-900">
-                  {formatBRL(member.spentCents)}{' '}
-                  <span className="text-xs font-normal text-ink-500">gastos no ciclo</span>
                 </p>
               </div>
 
@@ -172,41 +184,6 @@ export function CoupleView(props: CoupleViewProps) {
         </section>
       )}
 
-      <section>
-        <SectionTitle>Gastos do ciclo</SectionTitle>
-        <Card className="p-5">
-          <div className="space-y-4">
-            {props.members.map((member) => (
-              <SpendBar
-                key={member.id}
-                label={member.name}
-                value={member.spentCents}
-                total={totalSpent}
-                accent={member.accentColor}
-              />
-            ))}
-            <SpendBar
-              label="Casa / compartilhado"
-              value={props.sharedSpentCents}
-              total={totalSpent}
-              accent="slate"
-            />
-          </div>
-
-          <div className="mt-5 flex items-baseline justify-between border-t border-ink-100 pt-4">
-            <span className="text-sm font-medium text-ink-600">Guardado no ciclo</span>
-            <span className="tabular font-semibold text-[#8a5b02]">
-              {formatBRL(props.reservedCents)}
-            </span>
-          </div>
-        </Card>
-
-        <p className="mt-3 rounded-md bg-cream-100 px-4 py-3 text-xs leading-relaxed text-ink-600">
-          Estes números existem para vocês decidirem juntos, não para prestar contas um ao
-          outro. A conta é do casal.
-        </p>
-      </section>
-
       {props.members.length === 1 && !props.isOwner && (
         <EmptyState
           icon={UserPlus}
@@ -231,44 +208,6 @@ export function CoupleView(props: CoupleViewProps) {
   );
 }
 
-function SpendBar({
-  label,
-  value,
-  total,
-  accent,
-}: {
-  label: string;
-  value: number;
-  total: number;
-  accent: string;
-}) {
-  const percent = total > 0 ? Math.round((value / total) * 100) : 0;
-  const colors: Record<string, string> = {
-    rose: 'bg-rose-500',
-    sky: 'bg-[#3b93d9]',
-    amber: 'bg-amber-500',
-    emerald: 'bg-money-in',
-    violet: 'bg-[#7c5cd6]',
-    slate: 'bg-ink-400',
-  };
-
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="truncate text-sm font-medium text-ink-800">{label}</span>
-        <span className="tabular shrink-0 text-sm font-semibold text-ink-900">
-          {formatBRL(value)}
-        </span>
-      </div>
-      <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-ink-100">
-        <div
-          className={cn('h-full rounded-full transition-[width] duration-700', colors[accent] ?? colors.slate)}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-    </div>
-  );
-}
 
 function CopyLink({ url }: { url: string }) {
   const [copied, setCopied] = React.useState(false);

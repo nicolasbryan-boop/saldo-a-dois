@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Check, CalendarDays, Target, Repeat, Tag, Wallet } from 'lucide-react';
+import { Plus, Pencil, Check, CalendarDays, Target, Repeat, Wallet } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { Card, SectionTitle } from '@/components/ui/card';
 import { Sheet, ConfirmSheet } from '@/components/ui/sheet';
@@ -13,11 +13,13 @@ import {
   EmptyState,
   ProgressBar,
   Badge,
+  Avatar,
   CategoryIcon,
   categoryChipClass,
 } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiClientError, type CategoryOption } from '@/lib/api-client';
+import type { CoupleGoals } from '@/domains/goals/progress';
 import { useResettableState } from '@/lib/use-resettable-state';
 import { formatBRL } from '@/lib/money';
 import { formatDateBR, type LocalDate } from '@/lib/dates';
@@ -61,6 +63,8 @@ export interface PlanningViewProps {
   bills: BillRow[];
   incomes: IncomeRow[];
   goals: GoalRow[];
+  /** Progresso e contribuição por pessoa, calculados no servidor. */
+  coupleGoals: CoupleGoals;
   instances: InstanceRow[];
   categories: CategoryOption[];
   members: Array<{ id: string; name: string }>;
@@ -73,28 +77,29 @@ export interface PlanningViewProps {
   isOwner: boolean;
 }
 
-type Tab = 'ciclo' | 'contas' | 'receitas' | 'metas' | 'categorias';
+type Tab = 'metas' | 'ciclo' | 'contas' | 'receitas';
 
 export function PlanningView(props: PlanningViewProps) {
-  const [tab, setTab] = React.useState<Tab>('ciclo');
+  // Goals first: it answers "para onde estamos indo", which is what people
+  // open this screen to see. Bills and income are maintenance.
+  const [tab, setTab] = React.useState<Tab>('metas');
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="font-display text-xl font-semibold text-ink-900">Planejamento</h1>
-        <p className="text-xs text-ink-500">
-          O que se repete todo mês e para onde vocês querem chegar.
+        <p className="text-sm text-ink-500">
+          Para onde vocês estão indo, e o que se repete todo mês.
         </p>
       </div>
 
       <div className="scroll-soft -mx-4 flex gap-1.5 overflow-x-auto px-4 lg:mx-0 lg:px-0">
         {(
           [
+            ['metas', 'Metas', Target],
             ['ciclo', 'Ciclo', CalendarDays],
             ['contas', 'Contas', Repeat],
             ['receitas', 'Receitas', Wallet],
-            ['metas', 'Metas', Target],
-            ['categorias', 'Categorias', Tag],
           ] as Array<[Tab, string, React.ElementType]>
         ).map(([value, label, Icon]) => (
           <button
@@ -119,7 +124,6 @@ export function PlanningView(props: PlanningViewProps) {
       {tab === 'contas' && <BillsTab {...props} />}
       {tab === 'receitas' && <IncomesTab {...props} />}
       {tab === 'metas' && <GoalsTab {...props} />}
-      {tab === 'categorias' && <CategoriesTab categories={props.categories} />}
     </div>
   );
 }
@@ -746,16 +750,65 @@ function RecurringSheet({
 /* Goals                                                                      */
 /* ------------------------------------------------------------------------- */
 
-function GoalsTab({ goals }: PlanningViewProps) {
+function GoalsTab({ goals, coupleGoals, cycle, household }: PlanningViewProps) {
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<GoalRow | null>(null);
   const [contributing, setContributing] = React.useState<GoalRow | null>(null);
 
+  const byId = new Map(goals.map((goal) => [goal.id, goal]));
+
   return (
     <div className="space-y-4">
+      {/* Cycle summary and what the couple plans to set aside. */}
+      <Card className="p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <p className="text-sm font-semibold text-ink-800">{cycle.label}</p>
+          <p className="text-xs text-ink-500">
+            {formatDateBR(cycle.startDate)} — {formatDateBR(cycle.endDate)}
+          </p>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-3 gap-3 border-t border-ink-100 pt-4">
+          <div className="min-w-0">
+            <dt className="text-xs text-ink-500">Pretendem guardar</dt>
+            <dd className="tabular mt-1 truncate text-base font-semibold text-ink-900">
+              {formatBRL(household.monthlyReserveCents)}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs text-ink-500">Já guardado</dt>
+            <dd className="tabular mt-1 truncate text-base font-semibold text-money-in">
+              {formatBRL(coupleGoals.totalSavedCents)}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-xs text-ink-500">Somando as metas</dt>
+            <dd className="tabular mt-1 truncate text-base font-semibold text-ink-900">
+              {formatBRL(coupleGoals.totalTargetCents)}
+            </dd>
+          </div>
+        </dl>
+
+        {coupleGoals.perMember.length > 1 && coupleGoals.totalSavedCents > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-ink-100 pt-4">
+            {coupleGoals.perMember.map((member) => (
+              <div key={member.memberId ?? member.displayName} className="flex items-center gap-2">
+                <Avatar name={member.displayName} accent={member.accentColor} size="sm" />
+                <div>
+                  <p className="text-xs text-ink-500">{member.displayName}</p>
+                  <p className="tabular text-sm font-semibold text-ink-900">
+                    {formatBRL(member.amountCents)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Card>
+
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-ink-600">
-          Metas são a organização de vocês — não uma conta separada no banco.
+          As metas são do casal: os dois colocam, os dois acompanham.
         </p>
         <Button size="sm" onClick={() => setCreating(true)}>
           <Plus aria-hidden className="size-4" />
@@ -763,7 +816,7 @@ function GoalsTab({ goals }: PlanningViewProps) {
         </Button>
       </div>
 
-      {goals.length === 0 ? (
+      {coupleGoals.goals.length === 0 ? (
         <EmptyState
           icon={Target}
           title="Nenhuma meta ainda."
@@ -772,61 +825,74 @@ function GoalsTab({ goals }: PlanningViewProps) {
         />
       ) : (
         <div className="space-y-3">
-          {goals.map((goal) => {
-            const percent =
-              goal.targetCents > 0
-                ? Math.min(100, Math.round((goal.currentCents / goal.targetCents) * 100))
-                : 0;
-            const remaining = Math.max(0, goal.targetCents - goal.currentCents);
+          {coupleGoals.goals.map((goal) => (
+            <Card key={goal.id} className="flex flex-col p-5">
+              <div className="flex items-start justify-between gap-3">
+                <p className="min-w-0 flex-1 break-words font-display text-lg font-semibold leading-tight text-ink-900">
+                  {goal.name}
+                </p>
+                <Badge tone={goal.achieved ? 'positive' : 'neutral'}>{goal.percent}%</Badge>
+              </div>
 
-            return (
-              <Card key={goal.id} className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-display text-lg font-semibold text-ink-900">
-                      {goal.name}
-                    </p>
-                    <p className="tabular mt-0.5 text-sm text-ink-600">
-                      {formatBRL(goal.currentCents)} de {formatBRL(goal.targetCents)}
-                    </p>
-                  </div>
-                  <Badge tone={percent >= 100 ? 'positive' : 'neutral'}>{percent}%</Badge>
-                </div>
+              <p className="tabular mt-1 text-sm text-ink-600">
+                {formatBRL(goal.savedCents)} de {formatBRL(goal.targetCents)}
+                {goal.remainingCents > 0 ? (
+                  <span className="text-ink-500"> · faltam {formatBRL(goal.remainingCents)}</span>
+                ) : null}
+              </p>
 
-                <ProgressBar
-                  className="mt-4"
-                  value={goal.currentCents}
-                  max={goal.targetCents}
-                  label={`Progresso da meta ${goal.name}`}
-                />
+              <ProgressBar
+                className="mt-4"
+                value={goal.savedCents}
+                max={goal.targetCents}
+                label={`Progresso da meta ${goal.name}`}
+              />
 
-                <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-ink-100 pt-4 text-sm">
-                  <div>
-                    <dt className="text-xs font-semibold text-ink-500">Aporte planejado</dt>
-                    <dd className="tabular mt-0.5 font-semibold text-ink-900">
-                      {formatBRL(goal.monthlyPlanCents)}/ciclo
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-semibold text-ink-500">Falta</dt>
-                    <dd className="tabular mt-0.5 font-semibold text-ink-900">
-                      {formatBRL(remaining)}
-                    </dd>
-                  </div>
-                </dl>
+              {goal.contributors.length > 0 ? (
+                <ul className="mt-4 space-y-2 border-t border-ink-100 pt-4">
+                  {goal.contributors.map((person) => (
+                    <li
+                      key={person.memberId ?? person.displayName}
+                      className="flex items-center gap-2.5"
+                    >
+                      <Avatar name={person.displayName} accent={person.accentColor} size="sm" />
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink-700">
+                        {person.displayName}
+                      </span>
+                      <span className="tabular shrink-0 text-sm font-semibold text-ink-900">
+                        {formatBRL(person.amountCents)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-4 border-t border-ink-100 pt-4 text-sm text-ink-500">
+                  Ninguém guardou nada aqui ainda.
+                </p>
+              )}
 
-                <div className="mt-4 flex gap-2">
-                  <Button size="sm" fullWidth onClick={() => setContributing(goal)}>
-                    Guardar agora
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => setEditing(goal)}>
-                    <Pencil aria-hidden className="size-3.5" />
-                    Editar
-                  </Button>
-                </div>
-              </Card>
-            );
-          })}
+              {/* mt-auto keeps the buttons on the bottom edge of every card,
+                  so a row of cards with different names still lines up. */}
+              <div className="mt-auto flex gap-2 pt-4">
+                <Button
+                  size="sm"
+                  fullWidth
+                  onClick={() => setContributing(byId.get(goal.id) ?? null)}
+                >
+                  Guardar agora
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setEditing(byId.get(goal.id) ?? null)}
+                  aria-label={`Editar ${goal.name}`}
+                >
+                  <Pencil aria-hidden className="size-3.5" />
+                  Editar
+                </Button>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
@@ -1082,52 +1148,3 @@ function ContributeSheet({ goal, onClose }: { goal: GoalRow | null; onClose: () 
 /* Categories                                                                 */
 /* ------------------------------------------------------------------------- */
 
-function CategoriesTab({ categories }: { categories: CategoryOption[] }) {
-  const expense = categories.filter((category) => category.kind !== 'income');
-  const income = categories.filter((category) => category.kind !== 'expense');
-
-  return (
-    <div className="space-y-6">
-      <p className="text-sm leading-relaxed text-ink-600">
-        Estas são as categorias que o assistente usa para classificar o que vocês
-        escrevem.
-      </p>
-
-      <section>
-        <SectionTitle>Gastos</SectionTitle>
-        <div className="flex flex-wrap gap-2">
-          {expense.map((category) => (
-            <span
-              key={category.id}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
-                categoryChipClass(category.color),
-              )}
-            >
-              <CategoryIcon name={category.icon} className="size-3.5" />
-              {category.name}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      <section>
-        <SectionTitle>Entradas</SectionTitle>
-        <div className="flex flex-wrap gap-2">
-          {income.map((category) => (
-            <span
-              key={category.id}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium',
-                categoryChipClass(category.color),
-              )}
-            >
-              <CategoryIcon name={category.icon} className="size-3.5" />
-              {category.name}
-            </span>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}

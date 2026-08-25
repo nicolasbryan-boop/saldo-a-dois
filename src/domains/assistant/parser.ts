@@ -55,7 +55,49 @@ const INCOME_VERBS =
   /\b(recebi|recebemos|entrou|caiu|ganhei|ganhamos|entrada de|recebimento de|me pagaram)\b/;
 
 const RESERVE_VERBS =
-  /\b(guardei|guardamos|separei|separamos|poupei|reservei|coloquei na reserva|guardar)\b/;
+  /\b(guardei|guardamos|guarde|guardar|separei|separamos|separar|poupei|poupar|reservei|reservar|juntei|juntar|coloca|coloque|coloquei|adiciona|adicione|adicionei)\b/;
+
+/** "criar uma meta chamada X", "minha meta é juntar 2 mil para viagem". */
+const NEW_GOAL_RE =
+  /\b(criar|cria|nova|novo)\b[^.]*\bmeta\b|(?:minha|nossa)\s+meta\s+(?:e|eh)\b/;
+
+/**
+ * The goal someone named, as they typed it.
+ *
+ * Only matched after an explicit preposition ("para a viagem", "na meta casa"),
+ * so a bare "guardei 200" yields nothing and the executor asks instead of
+ * guessing which goal the money belongs to.
+ */
+function extractGoalName(text: string): string | null {
+  const patterns = [
+    /\b(?:na|no|da|do)\s+meta\s+(?:d[ao]s?\s+)?([\p{L}\p{N}\s]{2,40})/iu,
+    /\bmeta\s+(?:chamada|chamado|nome)\s+([\p{L}\p{N}\s]{2,40})/iu,
+    /\bp(?:ara|ra)\s+(?:a\s+|o\s+)?(?:meta\s+(?:d[ao]s?\s+)?|reserva\s+(?:d[ao]s?\s+)?)?([\p{L}\p{N}\s]{2,40})/iu,
+    // Bare "meta reforma de 5 mil" — no preposition, no "chamada".
+    /\bmeta\s+([\p{L}\p{N}\s]{2,40})/iu,
+    /\bn[ao]\s+([\p{L}\p{N}\s]{2,40})/iu,
+  ];
+
+  for (const pattern of patterns) {
+    const match = pattern.exec(text);
+    const raw = match?.[1]?.trim();
+    if (!raw) continue;
+
+    const cleaned = raw
+      // "reforma de 5 mil" -> "reforma". The amount is parsed separately; it
+      // is never part of the name.
+      .replace(/\s+(?:de\s+)?\d[\d.,]*\s*(?:k|mil|reais|conto|pila)?\s*$/i, '')
+      // Trailing date and unit words are not part of a goal name either.
+      .replace(/\b(hoje|ontem|anteontem|amanha|amanhã|reais|conto|pila|mil)\b.*$/i, '')
+      .replace(/\s+(?:de|da|do|para|pra)\s*$/i, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleaned.length >= 2) return cleaned.slice(0, 80);
+  }
+
+  return null;
+}
 
 /** Amount patterns: R$ 1.234,56 | 1.234,56 | 120,50 | 120 | 1,5k */
 const AMOUNT_RE =
@@ -257,20 +299,49 @@ export function parseLocally(input: string, timezone: string): ParseResult | nul
   if (question) return { action: question, confidence: 'high' };
 
   const amount = findAmount(text);
-  if (!amount) return null;
+
+  if (!amount) {
+    // A goal can be created without naming a target yet.
+    if (NEW_GOAL_RE.test(deaccent(text))) {
+      const goalName = extractGoalName(text);
+      if (goalName) {
+        return {
+          action: { type: 'create_goal', goalName, targetCents: null },
+          confidence: 'high',
+        };
+      }
+    }
+    return null;
+  }
 
   const date = extractDate(text, timezone);
   const hasExpenseVerb = EXPENSE_VERBS.test(deaccent(text)) || EXPENSE_VERBS.test(text);
   const hasIncomeVerb = INCOME_VERBS.test(deaccent(text)) || INCOME_VERBS.test(text);
   const hasReserveVerb = RESERVE_VERBS.test(deaccent(text)) || RESERVE_VERBS.test(text);
 
+  // Checked before the spend/earn verbs: "criar meta reforma de 5 mil" has no
+  // reserve verb at all, and falling through would file it as an expense
+  // under whatever category the word "reforma" suggests.
+  if (NEW_GOAL_RE.test(deaccent(text))) {
+    const goalName = extractGoalName(text);
+    if (goalName) {
+      return {
+        action: { type: 'create_goal', goalName, targetCents: amount.cents },
+        confidence: 'high',
+      };
+    }
+  }
+
   if (hasReserveVerb) {
+    const goalName = extractGoalName(text);
+
     return {
       action: {
         type: 'create_reserve',
         amountCents: amount.cents,
         description: buildDescription(text, null, 'Guardado'),
         date,
+        goalName,
       },
       confidence: 'high',
     };
