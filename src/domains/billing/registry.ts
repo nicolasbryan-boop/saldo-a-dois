@@ -26,10 +26,14 @@ export function getPaymentProvider(env?: Partial<CloudflareEnv>): PaymentProvide
   }
 
   if (configured === 'mercadopago') {
+    // Trimmed on the way in. A credential pasted with a stray newline or
+    // space produces an invalid Authorization header, which the runtime drops
+    // silently — the gateway then reports no authorization at all, which reads
+    // like a missing secret rather than a malformed one.
     return new MercadoPagoPaymentProvider(
-      readEnv(env, 'MERCADOPAGO_ACCESS_TOKEN'),
-      readEnv(env, 'MERCADOPAGO_PUBLIC_KEY'),
-      readEnv(env, 'MERCADOPAGO_WEBHOOK_SECRET'),
+      readEnv(env, 'MERCADOPAGO_ACCESS_TOKEN').trim(),
+      readEnv(env, 'MERCADOPAGO_PUBLIC_KEY').trim(),
+      readEnv(env, 'MERCADOPAGO_WEBHOOK_SECRET').trim(),
     );
   }
 

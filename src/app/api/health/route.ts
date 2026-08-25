@@ -50,7 +50,30 @@ export async function GET() {
         : [];
 
   const credentials = Object.fromEntries(
-    expected.map((name) => [name, looksMalformed(readEnv(env, name)) ? 'malformada' : 'ok']),
+    expected.map((name) => {
+      const raw = readEnv(env, name);
+
+      if (looksMalformed(raw)) return [name, 'malformada'];
+
+      // Surrounding whitespace makes an Authorization header invalid, and the
+      // runtime drops it rather than failing loudly — the gateway then says
+      // there is no authorization, which reads like a missing secret.
+      if (raw !== raw.trim()) return [name, 'ok (com espaços em volta)'];
+
+      // Mercado Pago access tokens and public keys always carry APP_USR- or
+      // TEST-. The webhook secret is a plain random string with no prefix, so
+      // the rule would be a false alarm there. Prefixes are the documented
+      // public format, not secret material.
+      const prefixed =
+        provider === 'mercadopago' &&
+        (name === 'MERCADOPAGO_ACCESS_TOKEN' || name === 'MERCADOPAGO_PUBLIC_KEY');
+
+      if (prefixed && !raw.startsWith('APP_USR-') && !raw.startsWith('TEST-')) {
+        return [name, 'não parece um token do Mercado Pago (falta APP_USR- ou TEST-)'];
+      }
+
+      return [name, 'ok'];
+    }),
   );
 
   return Response.json({ ok: true, paymentProvider: provider, credentials });
