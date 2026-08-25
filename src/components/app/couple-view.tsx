@@ -304,17 +304,26 @@ function InviteSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
       >
         {(
           <div className="space-y-4">
+            {/* Never claim to have sent something that did not go out. */}
             <p className="text-[0.9375rem] leading-relaxed text-ink-700">
-              Enviamos o convite para <strong>{result.email}</strong>. Ao abrir o link,
-              {' '}{result.name} escolhe a própria senha e faz o próprio cadastro de
-              receitas e gastos. Você não vê essa senha — nem precisa.
+              {result.emailDelivered === false ? (
+                <>
+                  O convite de <strong>{result.name}</strong> está pronto, mas não
+                  conseguimos enviar o e-mail para {result.email}. Copie o link abaixo e
+                  mande para ele(a) por onde preferir.
+                </>
+              ) : (
+                <>
+                  Enviamos o convite para <strong>{result.email}</strong>.
+                </>
+              )}
             </p>
-            {result.emailDelivered === false && (
-              <p className="rounded-md bg-money-hold-soft px-3.5 py-3 text-xs leading-relaxed text-[#8a5b02]">
-                O envio de e-mail ainda não está configurado neste ambiente, então nenhuma
-                mensagem foi enviada de verdade. Mande o link abaixo por conta própria.
-              </p>
-            )}
+
+            <p className="text-sm leading-relaxed text-ink-600">
+              Ao abrir o link, {result.name} escolhe a própria senha e faz o próprio
+              cadastro de receitas e gastos. Você não vê essa senha — nem precisa.
+            </p>
+
             {result.inviteUrl && <CopyLink url={result.inviteUrl} />}
           </div>
         )}

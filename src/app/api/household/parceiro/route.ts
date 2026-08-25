@@ -32,10 +32,20 @@ export const POST = handle(async (request) => {
     input: body,
   });
 
-  // The invite link is only echoed back outside production, where e-mail
-  // delivery may not be configured. In production the link travels by e-mail.
-  if (result.kind === 'link' && isProduction(env)) {
-    return jsonOk({ kind: result.kind, email: result.email, name: result.name, emailDelivered: result.emailDelivered });
+  // In production the link normally travels by e-mail and is not echoed back,
+  // so it exists in one place only.
+  //
+  // When delivery FAILS, withholding it strands the owner: the invite exists,
+  // nothing was sent, and there is nothing to pass along. Returning it then is
+  // not a leak — it goes to the authenticated owner who just created it, which
+  // is the same person the e-mail would have reached.
+  if (result.kind === 'link' && isProduction(env) && result.emailDelivered) {
+    return jsonOk({
+      kind: result.kind,
+      email: result.email,
+      name: result.name,
+      emailDelivered: true,
+    });
   }
 
   return jsonOk(result, { status: 201 });

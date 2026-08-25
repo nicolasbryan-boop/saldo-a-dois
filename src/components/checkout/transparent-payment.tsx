@@ -393,9 +393,13 @@ export function TransparentPayment({
           </p>
         ) : null}
 
+        {/* Was shown for Pix too, where there is no card to reassure anyone
+            about — a promise about something the person is not doing reads as
+            boilerplate and costs trust rather than building it. */}
         <p className="text-center text-[11px] leading-relaxed text-ink-500">
-          Os dados do cartão vão direto para o processador de pagamento. Eles não passam
-          nem ficam guardados nos nossos servidores.
+          {method === 'card'
+            ? 'Os dados do cartão vão direto para o processador de pagamento. Eles não passam nem ficam guardados nos nossos servidores.'
+            : 'O pagamento é confirmado pelo seu banco. Assim que cair, seu acesso é liberado automaticamente.'}
         </p>
       </Card>
     </div>
