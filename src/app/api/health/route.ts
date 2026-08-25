@@ -24,10 +24,28 @@ export const dynamic = 'force-dynamic';
  * only symptom is the gateway answering 400 with an empty body.
  */
 
-type Verdict = 'ok' | 'ausente' | 'com espaços em volta' | 'contém caracteres inválidos';
+type Verdict =
+  | 'ok'
+  | 'não chega ao Worker'
+  | 'chega vazia'
+  | 'com espaços em volta'
+  | 'contém caracteres inválidos';
+
+/**
+ * Distinguishes a binding that never reaches the Worker from one that arrives
+ * empty. They look identical from outside and have opposite fixes: the first
+ * is a deploy or environment problem, the second is a secret stored blank.
+ */
+function inspectNamed(env: Partial<CloudflareEnv>, name: string): Verdict {
+  const present = Object.prototype.hasOwnProperty.call(env, name);
+  const value = readEnv(env, name);
+
+  if (!value) return present ? 'chega vazia' : 'não chega ao Worker';
+  return inspect(value);
+}
 
 function inspect(value: string): Verdict {
-  if (!value) return 'ausente';
+  if (!value) return 'chega vazia';
 
   // Surrounding whitespace makes an Authorization header invalid, and the
   // runtime drops it rather than failing loudly — the gateway then reports no
@@ -63,7 +81,7 @@ export async function GET() {
         : [];
 
   const credentials = Object.fromEntries(
-    expected.map((name) => [name, inspect(readEnv(env, name))]),
+    expected.map((name) => [name, inspectNamed(env, name)]),
   );
 
   // E-mail is not optional in this product: the partner invite and the
@@ -72,7 +90,15 @@ export async function GET() {
   const emailProvider = readEnv(env, 'EMAIL_PROVIDER') || 'console';
   const email =
     emailProvider === 'resend'
-      ? { provider: emailProvider, apiKey: inspect(readEnv(env, 'RESEND_API_KEY')) }
+      ? {
+          provider: emailProvider,
+          apiKey: inspectNamed(env, 'RESEND_API_KEY'),
+          from: inspectNamed(env, 'EMAIL_FROM'),
+          // The sending domain is not secret: it appears in every message that
+          // goes out. Reporting it turns "domain not verified" from a guess
+          // into a fact. The local part is withheld.
+          fromDomain: (readEnv(env, 'EMAIL_FROM').match(/@([^>s]+)/)?.[1] ?? '(usando o padrão do código)'),
+        }
       : { provider: emailProvider, apiKey: 'não envia de verdade' };
 
   return Response.json({ ok: true, paymentProvider: provider, credentials, email });

@@ -120,7 +120,19 @@ class ResendEmailProvider implements EmailProvider {
       });
 
       if (!response.ok) {
-        const detail = `HTTP ${response.status}`;
+        // Resend puts the actionable part in the body — an unverified sending
+        // domain and a key without permission both surface as 403, and the
+        // status alone cannot tell them apart. Storing only the code made a
+        // failed send undebuggable.
+        let reason = '';
+        try {
+          const body = (await response.json()) as { message?: string; name?: string };
+          reason = [body.name, body.message].filter(Boolean).join(': ');
+        } catch {
+          reason = '';
+        }
+
+        const detail = `HTTP ${response.status}${reason ? ` — ${reason}` : ''}`.slice(0, 300);
         await record(this.db, message, this.id, 'failed', detail);
         return { delivered: false, provider: this.id, status: 'failed', error: detail };
       }
