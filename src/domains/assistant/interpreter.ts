@@ -206,9 +206,13 @@ function normalizePeriod(
 
 export async function interpret(
   input: string,
-  options: { timezone: string; provider: AiProvider },
+  options: {
+    timezone: string;
+    provider: AiProvider;
+    members?: Array<{ name: string; isSelf: boolean }>;
+  },
 ): Promise<InterpretResult> {
-  const local = parseLocally(input, options.timezone);
+  const local = parseLocally(input, options.timezone, options.members);
   if (local) {
     return { action: local.action, resolvedBy: 'rules', tokensUsed: 0 };
   }

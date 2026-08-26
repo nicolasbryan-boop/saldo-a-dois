@@ -240,3 +240,37 @@ describe('o saldo por pessoa fecha a conta', () => {
     expect(money.together.balanceCents).toBe(200_000);
   });
 });
+
+describe('o chat reconhece as pessoas pelo nome', () => {
+  const membros = [
+    { name: 'Ana Silva', isSelf: true },
+    { name: 'Bruno', isSelf: false },
+  ];
+
+  function parseComNomes(text: string) {
+    return parseLocally(text, 'America/Sao_Paulo', membros)?.action;
+  }
+
+  it('entende o nome do parceiro', () => {
+    // No list of words like "esposa" can cover the name a couple actually
+    // uses, so the parser is given the household's names.
+    expect(parseComNomes('quanto o Bruno tem?')).toMatchObject({
+      type: 'query_person_balance',
+      whose: 'partner',
+    });
+  });
+
+  it('entende o próprio nome como a própria pessoa', () => {
+    expect(parseComNomes('quanto a Ana tem?')).toMatchObject({
+      type: 'query_person_balance',
+      whose: 'me',
+    });
+  });
+
+  it('continua entendendo sem nomes informados', () => {
+    expect(parseLocally('quanto o parceiro tem?', 'America/Sao_Paulo')?.action).toMatchObject({
+      type: 'query_person_balance',
+      whose: 'partner',
+    });
+  });
+});

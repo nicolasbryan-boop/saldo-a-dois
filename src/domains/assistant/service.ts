@@ -43,6 +43,12 @@ export async function handleMessage(
   const { action, resolvedBy, tokensUsed } = await interpret(input, {
     timezone: context.household.timezone,
     provider,
+    // Names let the parser understand "quanto o Bruno tem?" — a relationship
+    // word list can never cover the name a couple actually uses.
+    members: context.members.map((member) => ({
+      name: member.displayName,
+      isSelf: member.id === context.member.id,
+    })),
   });
 
   const reply = await executeAction(context, action);

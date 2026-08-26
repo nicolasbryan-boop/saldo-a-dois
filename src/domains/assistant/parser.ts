@@ -227,7 +227,7 @@ export function categoryLabel(slug: string | null | undefined): string {
  *
  * Takes deaccented text, like the other question parsers.
  */
-function parsePersonBalance(t: string): AssistantAction | null {
+function parsePersonBalance(t: string, members?: ParserMember[]): AssistantAction | null {
   // Comparisons often carry neither "quanto" nor "tem" — "como está dividido"
   // is a balance question with none of the usual words in it, so it is matched
   // before the generic guard below rejects it.
@@ -247,6 +247,20 @@ function parsePersonBalance(t: string): AssistantAction | null {
     return { type: 'query_person_balance', whose: 'each' };
   }
 
+  // By name, before the relationship words: a couple says "quanto a Ana tem",
+  // and no list of words like "esposa" can ever cover the name they use.
+  for (const member of members ?? []) {
+    const first = deaccent(member.name).toLowerCase().split(/\s+/)[0] ?? '';
+    if (first.length < 2) continue;
+
+    if (new RegExp(`\\b${first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(t)) {
+      return {
+        type: 'query_person_balance',
+        whose: member.isSelf ? 'me' : 'partner',
+      };
+    }
+  }
+
   if (
     /\b(parceiro|parceira|esposa|esposo|marido|mulher|namorado|namorada|companheiro|companheira|ele|ela)\b/.test(t)
   ) {
@@ -264,7 +278,7 @@ function parsePersonBalance(t: string): AssistantAction | null {
   return null;
 }
 
-function parseQuestion(text: string): AssistantAction | null {
+function parseQuestion(text: string, members?: ParserMember[]): AssistantAction | null {
   const t = deaccent(text);
 
   if (/\b(ajuda|o que voce faz|o que vc faz|como funciona|comandos)\b/.test(t)) {
@@ -300,7 +314,7 @@ function parseQuestion(text: string): AssistantAction | null {
   // Checked before the generic balance rule below, which would otherwise
   // swallow "quanto temos" and answer for the household when the question was
   // about one person. Asking who the question is about is the whole point.
-  const personal = parsePersonBalance(t);
+  const personal = parsePersonBalance(t, members);
   if (personal) return personal;
 
   if (/\b(saldo|quanto temos|quanto tem na conta|quanto sobrou na conta)\b/.test(t)) {
@@ -346,11 +360,21 @@ function detectPeriod(text: string): 'today' | 'week' | 'cycle' | 'month' | 'pre
  * Attempts a confident local interpretation.
  * `null` means "ask the model".
  */
-export function parseLocally(input: string, timezone: string): ParseResult | null {
+/** A member of the household, so the parser can recognise them by name. */
+export interface ParserMember {
+  name: string;
+  isSelf: boolean;
+}
+
+export function parseLocally(
+  input: string,
+  timezone: string,
+  members?: ParserMember[],
+): ParseResult | null {
   const text = normalize(input);
   if (!text) return null;
 
-  const question = parseQuestion(text);
+  const question = parseQuestion(text, members);
   if (question) return { action: question, confidence: 'high' };
 
   const amount = findAmount(text);
