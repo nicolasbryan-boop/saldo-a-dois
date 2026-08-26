@@ -147,6 +147,34 @@ class ResendEmailProvider implements EmailProvider {
   }
 }
 
+/**
+ * The address messages are sent from, and the domain inside it.
+ *
+ * Exported so the health check can report the sender that is ACTUALLY used
+ * rather than recomputing it. The two had drifted apart: health parsed the raw
+ * variable while the provider applied a fallback, so they disagreed about
+ * which domain was in play and the real reason for a rejected send stayed
+ * hidden behind a contradiction.
+ */
+export function resolveSender(env?: Partial<CloudflareEnv>): {
+  from: string;
+  domain: string;
+  usingFallback: boolean;
+} {
+  const configured = readEnv(env, 'EMAIL_FROM').trim();
+
+  // A value without an address in it cannot be a sender. Treating it as one
+  // sends Resend something it will reject for a reason that points nowhere.
+  const usable = configured.includes('@') ? configured : '';
+  const from = usable || `${branding.name} <nao-responda@${branding.domain}>`;
+
+  return {
+    from,
+    domain: from.match(/@([^>\s]+)/)?.[1] ?? '',
+    usingFallback: !usable,
+  };
+}
+
 export function getEmailProvider(
   db: Database,
   env?: Partial<CloudflareEnv>,
@@ -155,8 +183,11 @@ export function getEmailProvider(
   const production = isProduction(env);
 
   if (configured === 'resend') {
-    const from = readEnv(env, 'EMAIL_FROM') || `${branding.name} <nao-responda@${branding.domain}>`;
-    return new ResendEmailProvider(db, readEnv(env, 'RESEND_API_KEY'), from);
+    return new ResendEmailProvider(
+      db,
+      readEnv(env, 'RESEND_API_KEY').trim(),
+      resolveSender(env).from,
+    );
   }
 
   return new ConsoleEmailProvider(db, production);

@@ -1,4 +1,5 @@
 import { getRuntime, readEnv } from '@/server/context';
+import { resolveSender } from '@/domains/notifications/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,16 +89,20 @@ export async function GET() {
   // password reset both depend on it, so a health check that ignores it hides
   // a broken flow.
   const emailProvider = readEnv(env, 'EMAIL_PROVIDER') || 'console';
+  const sender = resolveSender(env);
   const email =
     emailProvider === 'resend'
       ? {
           provider: emailProvider,
           apiKey: inspectNamed(env, 'RESEND_API_KEY'),
           from: inspectNamed(env, 'EMAIL_FROM'),
+          // The sender actually used, from the same function the provider
+          // calls. Not secret: it appears in every message that goes out.
+          remetente: sender.domain,
+          usandoPadraoDoCodigo: sender.usingFallback,
           // The sending domain is not secret: it appears in every message that
           // goes out. Reporting it turns "domain not verified" from a guess
           // into a fact. The local part is withheld.
-          fromDomain: (readEnv(env, 'EMAIL_FROM').match(/@([^>s]+)/)?.[1] ?? '(usando o padrão do código)'),
         }
       : { provider: emailProvider, apiKey: 'não envia de verdade' };
 
