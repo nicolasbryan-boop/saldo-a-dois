@@ -25,6 +25,8 @@ export interface EmailMessage {
 
 export interface EmailResult {
   delivered: boolean;
+  /** Provider-side id, when the provider returns one. */
+  messageId?: string;
   provider: string;
   status: 'sent' | 'queued' | 'failed' | 'not_configured';
   /** Present only outside production, so dev can follow the link. */
@@ -43,6 +45,7 @@ async function record(
   provider: string,
   status: EmailResult['status'],
   error?: string,
+  providerMessageId?: string,
 ): Promise<void> {
   await db.insert(emailOutbox).values({
     id: ids.email(),
@@ -53,6 +56,7 @@ async function record(
     provider,
     status: status === 'sent' ? 'sent' : status === 'failed' ? 'failed' : status === 'not_configured' ? 'not_configured' : 'queued',
     error: error ?? null,
+    providerMessageId: providerMessageId ?? null,
     createdAt: new Date(),
   });
 }
@@ -137,8 +141,18 @@ class ResendEmailProvider implements EmailProvider {
         return { delivered: false, provider: this.id, status: 'failed', error: detail };
       }
 
-      await record(this.db, message, this.id, 'sent');
-      return { delivered: true, provider: this.id, status: 'sent' };
+      // "sent" only means Resend accepted the request. The id is what makes
+      // the real outcome — delivered, bounced, complained — knowable later.
+      let messageId = '';
+      try {
+        const body = (await response.json()) as { id?: string };
+        messageId = typeof body.id === 'string' ? body.id : '';
+      } catch {
+        messageId = '';
+      }
+
+      await record(this.db, message, this.id, 'sent', undefined, messageId);
+      return { delivered: true, provider: this.id, status: 'sent', messageId };
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'erro desconhecido';
       await record(this.db, message, this.id, 'failed', detail);

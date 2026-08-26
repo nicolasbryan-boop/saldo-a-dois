@@ -217,6 +217,53 @@ export function categoryLabel(slug: string | null | undefined): string {
 }
 
 /** Question intents. All of these are answered from the database. */
+/**
+ * "Quanto eu tenho?", "quanto o parceiro tem?", "quanto cada um tem?".
+ *
+ * Balance questions were the obvious gap: the assistant could record money all
+ * day and then answer "não entendi" to the simplest thing anyone asks it. The
+ * order below matters — a comparison beats a person, and a named person beats
+ * the couple, because "quanto cada um tem" also contains "tem".
+ *
+ * Takes deaccented text, like the other question parsers.
+ */
+function parsePersonBalance(t: string): AssistantAction | null {
+  // Comparisons often carry neither "quanto" nor "tem" — "como está dividido"
+  // is a balance question with none of the usual words in it, so it is matched
+  // before the generic guard below rejects it.
+  if (/\b(como (esta|ficou) dividido|como estamos divididos|divisao do casal)\b/.test(t)) {
+    return { type: 'query_person_balance', whose: 'each' };
+  }
+
+  // Must look like a question about how much someone HAS, not what they spent.
+  const asksAmount = /\b(quanto|quantos|quanta)\b/.test(t);
+  const asksHaving = /\b(tenho|tem|temos|tem sobrando|sobrou|sobra|resta|restam|disponivel|livre)\b/.test(t);
+  if (!asksAmount || !asksHaving) return null;
+
+  // Spending questions belong to the existing handlers.
+  if (/\bgastou\b/.test(t) && !/\bcada um\b/.test(t)) return null;
+
+  if (/\b(cada um|cada pessoa|dividido|divisao|comparar|quem tem mais|quem gastou mais)\b/.test(t)) {
+    return { type: 'query_person_balance', whose: 'each' };
+  }
+
+  if (
+    /\b(parceiro|parceira|esposa|esposo|marido|mulher|namorado|namorada|companheiro|companheira|ele|ela)\b/.test(t)
+  ) {
+    return { type: 'query_person_balance', whose: 'partner' };
+  }
+
+  if (/\b(nos dois|nos|a gente|juntos|juntas|casal|temos|nosso|nossa)\b/.test(t)) {
+    return { type: 'query_person_balance', whose: 'both' };
+  }
+
+  if (/\b(eu|tenho|meu|minha|mim)\b/.test(t)) {
+    return { type: 'query_person_balance', whose: 'me' };
+  }
+
+  return null;
+}
+
 function parseQuestion(text: string): AssistantAction | null {
   const t = deaccent(text);
 
@@ -247,6 +294,14 @@ function parseQuestion(text: string): AssistantAction | null {
   if (/\b(limite diario|quanto por dia|por dia)\b/.test(t)) {
     return { type: 'query_daily_limit' };
   }
+
+  // "quanto eu tenho", "quanto o parceiro tem", "quanto cada um tem".
+  //
+  // Checked before the generic balance rule below, which would otherwise
+  // swallow "quanto temos" and answer for the household when the question was
+  // about one person. Asking who the question is about is the whole point.
+  const personal = parsePersonBalance(t);
+  if (personal) return personal;
 
   if (/\b(saldo|quanto temos|quanto tem na conta|quanto sobrou na conta)\b/.test(t)) {
     return { type: 'query_balance' };

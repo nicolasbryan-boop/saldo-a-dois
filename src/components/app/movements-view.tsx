@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { EmptyState, Badge } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { TransactionList, type TransactionItemData } from './transaction-item';
+import { BalanceCards } from './balance-cards';
+import type { CoupleMoney } from '@/domains/transactions/member-summary';
 import { QuickAddButton } from './quick-add';
 import { api, ApiClientError, type CategoryOption } from '@/lib/api-client';
 import { useResettableState } from '@/lib/use-resettable-state';
@@ -26,6 +28,8 @@ export interface MovementsViewProps {
   categories: CategoryOption[];
   cycleLabel: string;
   totals: { expense: number; income: number; reserve: number };
+  /** Per-person balances, from the same helper the other screens use. */
+  money: CoupleMoney;
   pageSize: number;
 }
 
@@ -43,6 +47,7 @@ export function MovementsView({
   members,
   categories,
   cycleLabel,
+  money,
   totals,
   pageSize,
 }: MovementsViewProps) {
@@ -84,6 +89,10 @@ export function MovementsView({
           {total} {total === 1 ? 'movimento' : 'movimentos'} · ciclo {cycleLabel}
         </p>
       </div>
+
+      {/* Who has what, before the totals: it is the question people open this
+          screen with. */}
+      <BalanceCards money={money} />
 
       <div className="grid grid-cols-3 gap-2">
         <Total label="Gastos" value={formatBRL(totals.expense)} tone="out" />

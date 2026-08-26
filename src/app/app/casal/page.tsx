@@ -43,6 +43,8 @@ export default async function CouplePage() {
       incomeCents: part.incomeCents,
       expenseCents: part.expenseCents,
       savedCents: savedByMemberId.get(part.memberId) ?? 0,
+      // Straight from loadCoupleMoney: already nets out what was set aside.
+      balanceCents: part.balanceCents,
     };
   }
 

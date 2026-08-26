@@ -1,4 +1,4 @@
-import { and, eq, asc } from 'drizzle-orm';
+import { and, eq, asc, sql } from 'drizzle-orm';
 import type { Database } from '@/db';
 import {
   households,
@@ -318,16 +318,38 @@ export async function addMember(
   }
 
   const memberId = ids.member();
-  await db.insert(householdMembers).values({
-    id: memberId,
-    householdId: params.householdId,
-    userId: params.userId,
-    role: params.role,
-    displayName: params.displayName,
-    accentColor: 'sky',
-    status: 'active',
-    joinedAt: now,
-  });
+
+  // THE SEAT IS CLAIMED IN ONE STATEMENT.
+  //
+  // `assertCanAddMember` above counts and then returns; between that count and
+  // an ordinary INSERT there is a window where a second acceptance passes the
+  // same check. Two invites accepted at the same instant would both be let in
+  // and the household would end up with three people.
+  //
+  // SQLite executes a single statement atomically, so folding the count into
+  // the INSERT closes that window: either the row goes in because there was
+  // room at that instant, or nothing happens.
+  await db.run(sql`
+    INSERT INTO household_members
+      (id, household_id, user_id, role, display_name, accent_color, status, joined_at)
+    SELECT
+      ${memberId}, ${params.householdId}, ${params.userId}, ${params.role},
+      ${params.displayName}, 'sky', 'active', ${now.getTime()}
+    WHERE (
+      SELECT COUNT(*) FROM household_members
+      WHERE household_id = ${params.householdId} AND status = 'active'
+    ) < ${pricing.maxMembers}
+  `);
+
+  // Checked by reading the row back rather than by a driver-specific
+  // "rows affected", which differs between D1 and the test driver.
+  const landed = await db
+    .select()
+    .from(householdMembers)
+    .where(eq(householdMembers.id, memberId))
+    .limit(1);
+
+  if (!landed[0]) throw errors.memberLimitReached();
 
   await writeAudit(db, {
     householdId: params.householdId,

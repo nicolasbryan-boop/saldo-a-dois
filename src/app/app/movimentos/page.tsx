@@ -4,6 +4,7 @@ import { getAppContext } from '@/server/app-context';
 import { listTransactions, countTransactions } from '@/domains/transactions/service';
 import { getCycleTotals } from '@/domains/cycles/service';
 import { categories as categoriesTable, transactionTypes } from '@/db/schema';
+import { loadCoupleMoney } from '@/domains/transactions/member-summary';
 import { MovementsView } from '@/components/app/movements-view';
 
 export const metadata: Metadata = { title: 'Movimentos' };
@@ -47,10 +48,15 @@ export default async function MovementsPage({
     offset,
   };
 
-  const [transactions, total, cycleTotals, categoryRows] = await Promise.all([
+  const [transactions, total, cycleTotals, money, categoryRows] = await Promise.all([
     listTransactions(context.db, context.household.id, filters),
     countTransactions(context.db, context.household.id, filters),
     getCycleTotals(context.db, context.household.id, context.cycle.id),
+    loadCoupleMoney(context.db, {
+      householdId: context.household.id,
+      cycleId: context.cycle.id,
+      actorMemberId: context.actor.memberId,
+    }),
     context.db
       .select({
         id: categoriesTable.id,
@@ -77,6 +83,7 @@ export default async function MovementsPage({
       today={context.today}
       pageSize={PAGE_SIZE}
       cycleLabel={context.cycle.label}
+      money={money}
       totals={{
         expense: cycleTotals.expense,
         income: cycleTotals.income,

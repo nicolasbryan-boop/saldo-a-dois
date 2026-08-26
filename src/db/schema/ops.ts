@@ -93,6 +93,14 @@ export const emailOutbox = sqliteTable(
       .notNull()
       .default('queued'),
     error: text('error'),
+    /**
+     * Id the provider assigned to the message.
+     *
+     * Without it "sent" is the end of the story: it says the provider
+     * accepted the request, never that anyone received the message. With it,
+     * delivery, bounce and complaint can be looked up afterwards.
+     */
+    providerMessageId: text('provider_message_id'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   },
   (t) => [index('email_outbox_to_idx').on(t.to, t.createdAt)],

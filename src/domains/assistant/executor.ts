@@ -14,6 +14,7 @@ import {
 } from '@/domains/transactions/service';
 import { listGoals, createGoal, contributeToGoal } from '@/domains/goals/service';
 import { matchGoalByName } from '@/domains/goals/progress';
+import { loadCoupleMoney } from '@/domains/transactions/member-summary';
 import { findPreviousCycle } from '@/domains/cycles/service';
 import { branding } from '@/config';
 
@@ -299,6 +300,82 @@ export async function executeAction(
     /* ---------------------------------------------------------------- */
     /* Questions — answered from the database, never by the model         */
     /* ---------------------------------------------------------------- */
+    case 'query_person_balance': {
+      // Same helper the dashboard, the couple screen and the movements screen
+      // use. A second implementation here would eventually disagree with them
+      // about the same cycle, and the chat would become the untrustworthy one.
+      const money = await loadCoupleMoney(db, {
+        householdId: household.id,
+        cycleId: cycle.id,
+        actorMemberId: context.actor.memberId,
+      });
+
+      const mine = money.mine;
+      const partner = money.partner;
+
+      if (action.whose === 'me') {
+        return {
+          text: `Neste ciclo você tem **${formatBRL(mine.balanceCents)}**.`,
+          highlight: {
+            label: 'Meu saldo',
+            value: formatBRL(mine.balanceCents),
+            tone: mine.balanceCents < 0 ? 'negative' : 'positive',
+          },
+        };
+      }
+
+      if (action.whose === 'partner') {
+        if (!partner) {
+          return {
+            text: [
+              'Você ainda não tem parceiro(a) no espaço.',
+              '',
+              'Quando alguém entrar, eu passo a responder pelos dois.',
+            ].join('\n'),
+          };
+        }
+
+        return {
+          text: `Neste ciclo ${partner.displayName} tem **${formatBRL(partner.balanceCents)}**.`,
+          highlight: {
+            label: partner.displayName,
+            value: formatBRL(partner.balanceCents),
+            tone: partner.balanceCents < 0 ? 'negative' : 'positive',
+          },
+        };
+      }
+
+      if (action.whose === 'both') {
+        return {
+          text: `Neste ciclo vocês têm **${formatBRL(money.together.balanceCents)}** juntos.`,
+          highlight: {
+            label: 'Nós dois',
+            value: formatBRL(money.together.balanceCents),
+            tone: money.together.balanceCents < 0 ? 'negative' : 'positive',
+          },
+        };
+      }
+
+      // 'each' — the comparison.
+      const linhas = [
+        'Neste ciclo:',
+        `• Você: **${formatBRL(mine.balanceCents)}**`,
+        partner
+          ? `• ${partner.displayName}: **${formatBRL(partner.balanceCents)}**`
+          : '• Parceiro(a): ainda sem ninguém no espaço',
+        `• Juntos: **${formatBRL(money.together.balanceCents)}**`,
+      ];
+
+      return {
+        text: linhas.join('\n'),
+        highlight: {
+          label: 'Juntos',
+          value: formatBRL(money.together.balanceCents),
+          tone: money.together.balanceCents < 0 ? 'negative' : 'positive',
+        },
+      };
+    }
+
     case 'query_free_balance': {
       const snapshot = await loadSnapshot(db, {
         householdId: household.id,

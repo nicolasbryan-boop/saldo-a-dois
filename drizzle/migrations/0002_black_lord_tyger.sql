@@ -1,0 +1,1 @@
+ALTER TABLE `email_outbox` ADD `provider_message_id` text;

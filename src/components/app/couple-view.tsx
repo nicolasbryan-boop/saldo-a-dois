@@ -64,7 +64,48 @@ export function CoupleView(props: CoupleViewProps) {
     }
   }
 
-  const canInvite = props.isOwner && props.members.length < pricing.maxMembers;
+  const [resending, setResending] = React.useState(false);
+  const [cancelling, setCancelling] = React.useState(false);
+
+  /** Cancels and recreates, which is the only way to send the e-mail again. */
+  async function resendInvite(name: string, email: string) {
+    setResending(true);
+    try {
+      await api.delete('/api/household/parceiro/convite');
+      await api.post('/api/household/parceiro', { name, email });
+      toast.success('Convite reenviado.');
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof ApiClientError ? error.message : 'Não conseguimos reenviar.',
+      );
+    } finally {
+      setResending(false);
+    }
+  }
+
+  async function cancelInvite() {
+    setCancelling(true);
+    try {
+      await api.delete('/api/household/parceiro/convite');
+      toast.success('Convite cancelado. A vaga está livre de novo.');
+      router.refresh();
+    } catch (error) {
+      toast.error(
+        error instanceof ApiClientError ? error.message : 'Não conseguimos cancelar.',
+      );
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const isComplete = props.members.length >= pricing.maxMembers;
+  const hasPendingInvite = props.pendingInvites.length > 0;
+
+  // The second seat is taken by a member OR by an invite already promised to
+  // someone. Offering "convidar" while an invite is outstanding is how a
+  // household ends up with two people racing for one place.
+  const canInvite = props.isOwner && !isComplete && !hasPendingInvite;
 
   return (
     <div className="space-y-6">
@@ -86,6 +127,18 @@ export function CoupleView(props: CoupleViewProps) {
           os dois
         </p>
       </Card>
+
+      {isComplete && (
+        <Card className="flex items-center gap-3 border-money-in/30 bg-money-in-soft p-4">
+          <Heart aria-hidden className="size-5 shrink-0 text-money-in" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-ink-900">Seu casal está completo</p>
+            <p className="text-xs leading-relaxed text-ink-600">
+              Seu plano inclui você + 1 parceiro(a).
+            </p>
+          </div>
+        </Card>
+      )}
 
       {canInvite && (
         <button
@@ -178,7 +231,35 @@ export function CoupleView(props: CoupleViewProps) {
                 </div>
                 <Badge tone="warning">Aguardando</Badge>
               </div>
+
+              <p className="mt-2 text-xs leading-relaxed text-ink-600">
+                Enquanto este convite estiver de pé, a segunda vaga fica reservada para
+                ele(a). Cancele para convidar outra pessoa.
+              </p>
+
               <CopyLink url={`${props.appUrl}/convite/${invite.token}`} />
+
+              {props.isOwner && (
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    fullWidth
+                    loading={resending}
+                    onClick={() => resendInvite(invite.name, invite.email)}
+                  >
+                    Reenviar e-mail
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    loading={cancelling}
+                    onClick={cancelInvite}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              )}
             </Card>
           ))}
         </section>

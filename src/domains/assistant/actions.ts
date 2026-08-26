@@ -81,6 +81,14 @@ export const assistantActionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('query_member_spending') }),
   z.object({ type: z.literal('query_goals') }),
   z.object({
+    type: z.literal('query_person_balance'),
+    /**
+     * Whose balance the question is about. 'each' asks for the comparison,
+     * which is a different answer from any single balance.
+     */
+    whose: z.enum(['me', 'partner', 'both', 'each']),
+  }),
+  z.object({
     type: z.literal('simulate_spend'),
     amountCents,
     description: description.optional(),

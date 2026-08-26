@@ -23,6 +23,8 @@ export interface SideMoney {
   incomeCents: number;
   expenseCents: number;
   savedCents: number;
+  /** Already discounts what was set aside. Do not recompute. */
+  balanceCents: number;
 }
 
 export interface CoupleSidesProps {
@@ -60,7 +62,10 @@ function Line({
 }
 
 function Side({ money, caption }: { money: SideMoney; caption: string }) {
-  const balance = money.incomeCents - money.expenseCents;
+  // Comes from loadCoupleMoney, never recomputed here. Recomputing it as
+  // income minus expense ignored what was set aside, so this screen showed a
+  // different number than the movements screen for the same cycle.
+  const balance = money.balanceCents;
 
   return (
     <Card className="flex flex-col gap-3 p-4">

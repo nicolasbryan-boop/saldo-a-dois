@@ -21,7 +21,14 @@ export interface MemberMoney {
   accentColor: string;
   incomeCents: number;
   expenseCents: number;
-  /** Income minus expense. Negative means this person spent more than earned. */
+  /** Set aside into goals. Not spent, but no longer available either. */
+  reservedCents: number;
+  /**
+   * What is left: income minus expense minus what was set aside.
+   *
+   * Money in a goal is still the couple's, but it is not spendable, so a
+   * balance that ignored it would overstate what this person can use.
+   */
   balanceCents: number;
 }
 
@@ -32,7 +39,12 @@ export interface CoupleMoney {
   partner: MemberMoney | null;
   /** Rows with no owner. Null when there are none, so the UI can skip it. */
   shared: MemberMoney | null;
-  together: { incomeCents: number; expenseCents: number; balanceCents: number };
+  together: {
+    incomeCents: number;
+    expenseCents: number;
+    reservedCents: number;
+    balanceCents: number;
+  };
 }
 
 function emptyMoney(
@@ -46,6 +58,7 @@ function emptyMoney(
     accentColor,
     incomeCents: 0,
     expenseCents: 0,
+    reservedCents: 0,
     balanceCents: 0,
   };
 }
@@ -86,7 +99,7 @@ export async function loadCoupleMoney(
   }
   const shared = emptyMoney(null, 'Da casa', 'slate');
 
-  const together = { incomeCents: 0, expenseCents: 0, balanceCents: 0 };
+  const together = { incomeCents: 0, expenseCents: 0, reservedCents: 0, balanceCents: 0 };
 
   for (const row of rows) {
     const amount = Number(row.total ?? 0);
@@ -95,9 +108,16 @@ export async function loadCoupleMoney(
     // disappearing from the total.
     const bucket = (row.memberId && buckets.get(row.memberId)) || shared;
 
-    if (row.type === 'income') {
+    // Five movement types, three directions. Lumping everything that is not
+    // income into "gastou" counted an adjustment_in — money coming IN — as
+    // spending, and buried reserves inside expenses where nobody could see
+    // what had actually been set aside.
+    if (row.type === 'income' || row.type === 'adjustment_in') {
       bucket.incomeCents += amount;
       together.incomeCents += amount;
+    } else if (row.type === 'reserve') {
+      bucket.reservedCents += amount;
+      together.reservedCents += amount;
     } else {
       bucket.expenseCents += amount;
       together.expenseCents += amount;
@@ -105,16 +125,18 @@ export async function loadCoupleMoney(
   }
 
   for (const bucket of [...buckets.values(), shared]) {
-    bucket.balanceCents = bucket.incomeCents - bucket.expenseCents;
+    bucket.balanceCents = bucket.incomeCents - bucket.expenseCents - bucket.reservedCents;
   }
-  together.balanceCents = together.incomeCents - together.expenseCents;
+  together.balanceCents =
+    together.incomeCents - together.expenseCents - together.reservedCents;
 
   const mine =
     buckets.get(params.actorMemberId) ?? emptyMoney(params.actorMemberId, 'Você', 'rose');
   const partner =
     [...buckets.values()].find((bucket) => bucket.memberId !== params.actorMemberId) ?? null;
 
-  const sharedHasMoney = shared.incomeCents > 0 || shared.expenseCents > 0;
+  const sharedHasMoney =
+    shared.incomeCents > 0 || shared.expenseCents > 0 || shared.reservedCents > 0;
 
   return { mine, partner, shared: sharedHasMoney ? shared : null, together };
 }
