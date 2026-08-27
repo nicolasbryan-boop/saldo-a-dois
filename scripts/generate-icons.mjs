@@ -1,7 +1,7 @@
 /**
  * Generates the PWA icon set.
  *
- * The mark is drawn analytically (rounded square + two rings + a leaf shape)
+ * The mark is drawn analytically (rounded square + the two heart strokes)
  * and encoded straight to PNG with node:zlib, so the project needs no native
  * image dependency and the icons are reproducible from source.
  *
@@ -15,7 +15,6 @@ const OUT_DIR = join(process.cwd(), 'public', 'icons');
 
 const INK = [16, 24, 40];
 const ROSE = [228, 87, 110];
-const ROSE_SOFT = [242, 122, 142];
 const CREAM = [251, 248, 244];
 
 /* -------------------------------------------------------------------------- */
@@ -87,18 +86,72 @@ function roundedRectCoverage(x, y, size, radiusRatio, inset) {
   return outside <= 0 ? 1 : 0;
 }
 
-function ringCoverage(x, y, cx, cy, radius, thickness) {
-  const distance = Math.abs(Math.hypot(x - cx, y - cy) - radius);
-  return distance <= thickness / 2 ? 1 : 0;
+/**
+ * The same two curves the Logo component draws, in the same 32x32 space.
+ *
+ * Duplicated as control points rather than parsed from the component: this
+ * script runs in Node with no DOM, and a path parser would be more code than
+ * the numbers it reads. They are checked against the component by eye when the
+ * mark changes, which is rare.
+ */
+const LEFT_CURVE = [
+  [[16, 27], [8, 20.5], [4, 15.5], [4, 11.8]],
+  [[4, 11.8], [4, 8.2], [6.8, 6], [9.6, 6]],
+  [[9.6, 6], [12.3, 6], [15, 7.8], [17.2, 11.2]],
+];
+
+const RIGHT_CURVE = [
+  [[16, 27], [24, 20.5], [28, 15.5], [28, 11.8]],
+  [[28, 11.8], [28, 8.2], [25.2, 6], [22.4, 6]],
+  [[22.4, 6], [19.7, 6], [17, 7.8], [14.8, 11.2]],
+];
+
+/** Cubic bezier sampled into a polyline, in icon pixels. */
+function samplePath(segments, scale, offset, steps = 48) {
+  const points = [];
+
+  for (const [p0, p1, p2, p3] of segments) {
+    for (let i = 0; i <= steps; i += 1) {
+      const t = i / steps;
+      const u = 1 - t;
+      const x =
+        u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0];
+      const y =
+        u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1];
+      points.push([x * scale + offset, y * scale + offset]);
+    }
+  }
+
+  return points;
 }
 
-function leafCoverage(x, y, cx, cy, width, height) {
-  const nx = (x - cx) / width;
-  const ny = (y - cy) / height;
-  // Vesica-like shape: intersection of two offset circles.
-  const a = Math.hypot(nx + 0.5, ny) <= 1;
-  const b = Math.hypot(nx - 0.5, ny) <= 1;
-  return a && b ? 1 : 0;
+/** Squared distance from a point to a segment. */
+function segmentDistanceSq(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSq));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return (px - cx) * (px - cx) + (py - cy) * (py - cy);
+}
+
+/**
+ * Coverage of a round-capped stroke.
+ *
+ * Distance to the polyline gives the round caps and joins for free, which is
+ * exactly what strokeLinecap="round" does in the SVG.
+ */
+function strokeCoverage(x, y, points, halfWidth) {
+  const limitSq = halfWidth * halfWidth;
+
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    if (segmentDistanceSq(x, y, a[0], a[1], b[0], b[1]) <= limitSq) return 1;
+  }
+
+  return 0;
 }
 
 function blend(dst, offset, color, alpha) {
@@ -116,12 +169,14 @@ function drawIcon(size, padding = 0) {
   const rgba = Buffer.alloc(size * size * 4, 0);
   const inset = size * padding;
   const inner = size - inset * 2;
-  const cx = size / 2;
-  const cy = size / 2;
 
-  const ringRadius = inner * 0.205;
-  const ringThickness = Math.max(2, inner * 0.068);
-  const ringOffset = inner * 0.11;
+  // The mark lives on cream, not ink: the left half of the heart is dark, and
+  // on a dark tile it would vanish. The old mark could sit on ink because it
+  // was drawn in rose and cream only.
+  const scale = inner / 32;
+  const left = samplePath(LEFT_CURVE, scale, inset);
+  const right = samplePath(RIGHT_CURVE, scale, inset);
+  const halfWidth = (3.2 / 2) * scale;
 
   const SAMPLES = 3;
   const step = 1 / (SAMPLES + 1);
@@ -131,9 +186,8 @@ function drawIcon(size, padding = 0) {
       const offset = (y * size + x) * 4;
 
       let bg = 0;
-      let leftRing = 0;
-      let rightRing = 0;
-      let leaf = 0;
+      let leftStroke = 0;
+      let rightStroke = 0;
 
       for (let sy = 1; sy <= SAMPLES; sy += 1) {
         for (let sx = 1; sx <= SAMPLES; sx += 1) {
@@ -141,32 +195,31 @@ function drawIcon(size, padding = 0) {
           const py = y + sy * step;
 
           bg += roundedRectCoverage(px, py, size, 0.22, inset);
-          leftRing += ringCoverage(px, py, cx - ringOffset, cy, ringRadius, ringThickness);
-          rightRing += ringCoverage(px, py, cx + ringOffset, cy, ringRadius, ringThickness);
-          leaf += leafCoverage(px, py, cx, cy, inner * 0.115, inner * 0.2);
+          leftStroke += strokeCoverage(px, py, left, halfWidth);
+          rightStroke += strokeCoverage(px, py, right, halfWidth);
         }
       }
 
       const total = SAMPLES * SAMPLES;
-      if (bg > 0) blend(rgba, offset, INK, bg / total);
-      if (leftRing > 0) blend(rgba, offset, ROSE_SOFT, leftRing / total);
-      if (rightRing > 0) blend(rgba, offset, CREAM, rightRing / total);
-      if (leaf > 0) blend(rgba, offset, ROSE, leaf / total);
+      if (bg > 0) blend(rgba, offset, CREAM, bg / total);
+      // Rose last so the crossing reads the same way as in the SVG, where the
+      // right half is painted over the left.
+      if (leftStroke > 0) blend(rgba, offset, INK, leftStroke / total);
+      if (rightStroke > 0) blend(rgba, offset, ROSE, rightStroke / total);
     }
   }
 
   return encodePng(size, size, rgba);
 }
 
-/* -------------------------------------------------------------------------- */
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#101828"/>
-  <circle cx="12.5" cy="16" r="6.5" stroke="#f27a8e" stroke-width="2.2" fill="none"/>
-  <circle cx="19.5" cy="16" r="6.5" stroke="#fbf8f4" stroke-width="2.2" fill="none"/>
-  <path d="M16 11.2c1.2 1.3 1.9 2.9 1.9 4.8s-.7 3.5-1.9 4.8c-1.2-1.3-1.9-2.9-1.9-4.8s.7-3.5 1.9-4.8Z" fill="#e4576e"/>
+  <rect width="32" height="32" rx="7" fill="#fbf8f4"/>
+  <path d="M16 27 C 8 20.5, 4 15.5, 4 11.8 C 4 8.2, 6.8 6, 9.6 6 C 12.3 6, 15 7.8, 17.2 11.2" stroke="#1f2937" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+  <path d="M16 27 C 24 20.5, 28 15.5, 28 11.8 C 28 8.2, 25.2 6, 22.4 6 C 19.7 6, 17 7.8, 14.8 11.2" stroke="#e4576e" stroke-width="3.2" stroke-linecap="round" fill="none"/>
 </svg>
 `;
+
 
 mkdirSync(OUT_DIR, { recursive: true });
 
