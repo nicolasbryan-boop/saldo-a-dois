@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from 'next';
 import { Fraunces, Plus_Jakarta_Sans } from 'next/font/google';
 import { branding } from '@/config';
 import { ServiceWorkerRegistration } from '@/components/pwa/service-worker-registration';
+import { MetaPixel } from '@/components/marketing/meta-pixel';
+import { getRuntime, readEnv } from '@/server/context';
 import './globals.css';
 
 const display = Fraunces({
@@ -79,14 +81,26 @@ export const viewport: Viewport = {
   maximumScale: 5,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // Read at runtime, not inlined at build: NEXT_PUBLIC_* would bake the id
+  // into the bundle and changing it would mean rebuilding and redeploying.
+  let pixelId = '';
+  try {
+    const { env } = await getRuntime();
+    pixelId = readEnv(env, 'META_PIXEL_ID');
+  } catch {
+    // Rendered outside a request (build-time prerender): no bindings, no pixel.
+    pixelId = '';
+  }
+
   return (
     <html lang="pt-BR" className={`${display.variable} ${body.variable}`}>
       <body className="min-h-dvh antialiased">
         {children}
         <ServiceWorkerRegistration />
+        <MetaPixel pixelId={pixelId} />
       </body>
     </html>
   );

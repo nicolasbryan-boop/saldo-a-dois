@@ -44,6 +44,22 @@ export default function PrivacyPage() {
         />
       </LegalSection>
 
+      <LegalSection title="Medição de anúncios">
+        <p>
+          Nas páginas públicas — a inicial, o checkout, o login e estas páginas
+          legais — usamos o Meta Pixel para saber quantas pessoas chegaram aqui
+          por um anúncio. Ele registra a visita à página, não o que você faz com
+          o seu dinheiro.
+        </p>
+        <LegalList
+          items={[
+            'O pixel NÃO roda depois que você entra na sua conta: nada dentro do aplicativo é enviado para a Meta.',
+            'Nenhum lançamento, saldo, meta ou mensagem do assistente sai daqui para fins de publicidade.',
+            'Bloqueadores de rastreamento impedem o pixel sem quebrar nada do produto.',
+          ]}
+        />
+      </LegalSection>
+
       <LegalSection title="Como usamos">
         <p>
           Os seus lançamentos servem exclusivamente para calcular e mostrar os números do
