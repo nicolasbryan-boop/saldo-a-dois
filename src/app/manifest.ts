@@ -25,17 +25,17 @@ export default function manifest(): MetadataRoute.Manifest {
     dir: 'ltr',
     categories: ['finance', 'productivity', 'lifestyle'],
     icons: [
-      { src: '/icons/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-      { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      { src: `/icons/icon.svg?v=${branding.iconVersion}`, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+      { src: `/icons/icon-192.png?v=${branding.iconVersion}`, sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: `/icons/icon-512.png?v=${branding.iconVersion}`, sizes: '512x512', type: 'image/png', purpose: 'any' },
       {
-        src: '/icons/maskable-192.png',
+        src: `/icons/maskable-192.png?v=${branding.iconVersion}`,
         sizes: '192x192',
         type: 'image/png',
         purpose: 'maskable',
       },
       {
-        src: '/icons/maskable-512.png',
+        src: `/icons/maskable-512.png?v=${branding.iconVersion}`,
         sizes: '512x512',
         type: 'image/png',
         purpose: 'maskable',
@@ -46,13 +46,13 @@ export default function manifest(): MetadataRoute.Manifest {
         name: 'Registrar um gasto',
         short_name: 'Novo gasto',
         url: '/app/chat',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+        icons: [{ src: `/icons/icon-192.png?v=${branding.iconVersion}`, sizes: '192x192' }],
       },
       {
         name: 'Ver movimentos',
         short_name: 'Movimentos',
         url: '/app/movimentos',
-        icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+        icons: [{ src: `/icons/icon-192.png?v=${branding.iconVersion}`, sizes: '192x192' }],
       },
     ],
   };

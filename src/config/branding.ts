@@ -20,6 +20,14 @@ export const branding = {
   currency: 'BRL',
   themeColor: '#0F1729',
   backgroundColor: '#FBF9F6',
+  /**
+   * Bumped whenever the brand mark changes.
+   *
+   * Browsers keep favicons in a store of their own and ignore cache headers
+   * for them — Chrome will happily show a mark from weeks ago even after a
+   * hard reload. Changing the URL is the only reliable way to replace one.
+   */
+  iconVersion: '2',
   /** Emoji used as the household glyph across the app. */
   glyph: '❤️',
 } as const;
