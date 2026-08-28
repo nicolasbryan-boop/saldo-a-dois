@@ -8,6 +8,7 @@ import { Field, Input } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { api, ApiClientError } from '@/lib/api-client';
 import { TransparentPayment } from './transparent-payment';
+import { trackInitiateCheckout } from '@/components/marketing/pixel-events';
 import { formatBRL } from '@/lib/money';
 import { cn } from '@/lib/cn';
 import {
@@ -36,6 +37,20 @@ export function CheckoutStart({
   const [payingHere, setPayingHere] = React.useState(false);
 
   const plan = getPlan(planId);
+
+  // Reported once per plan the visitor actually looks at. Switching plans is a
+  // new intent and worth an event; re-rendering is not.
+  //
+  // `plan` comes from the catalogue via getPlan(), which falls back to the
+  // default for anything unknown — so ?plano=<qualquer coisa> can change which
+  // plan is shown but never what it is worth.
+  const reported = React.useRef(new Set<PlanId>());
+
+  React.useEffect(() => {
+    if (reported.current.has(plan.id)) return;
+    reported.current.add(plan.id);
+    trackInitiateCheckout(plan);
+  }, [plan]);
   const canPayHere = Boolean(transparentPublicKey);
 
   async function submit(event: React.FormEvent) {

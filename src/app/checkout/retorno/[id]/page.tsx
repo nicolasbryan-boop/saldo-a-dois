@@ -30,6 +30,7 @@ export default async function CheckoutReturnPage({
     >
       <CheckoutReturn
         checkoutId={checkout.id}
+        planId={checkout.planId}
         initialStatus={{
           id: checkout.id,
           status: checkout.status,

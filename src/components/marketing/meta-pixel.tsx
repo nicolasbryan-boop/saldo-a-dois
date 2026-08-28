@@ -46,7 +46,17 @@ export function MetaPixel({ pixelId }: { pixelId: string }) {
   // Client-side navigation does not reload the page, so the snippet's own
   // PageView fires once and never again. Without this, only the first page of
   // a visit would ever be counted.
+  //
+  // The first run is skipped on purpose: the snippet already reported the page
+  // it loaded on, and firing here too counted every landing twice.
+  const firstRender = React.useRef(true);
+
   React.useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+
     if (isPrivate || !pixelId) return;
     window.fbq?.('track', 'PageView');
   }, [pathname, isPrivate, pixelId]);

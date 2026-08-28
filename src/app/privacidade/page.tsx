@@ -51,10 +51,17 @@ export default function PrivacyPage() {
           por um anúncio. Ele registra a visita à página, não o que você faz com
           o seu dinheiro.
         </p>
+        <p>
+          Três momentos são registrados: a visita a uma página pública, a
+          abertura do checkout com o plano escolhido, e a confirmação de uma
+          assinatura. Da compra vai apenas qual plano foi contratado e o preço
+          de tabela dele — o mesmo que está na página de preços.
+        </p>
         <LegalList
           items={[
             'O pixel NÃO roda depois que você entra na sua conta: nada dentro do aplicativo é enviado para a Meta.',
-            'Nenhum lançamento, saldo, meta ou mensagem do assistente sai daqui para fins de publicidade.',
+            'Nenhum lançamento, saldo, meta, mensagem do assistente, dado do seu parceiro ou CPF sai daqui para fins de publicidade.',
+            'A confirmação de compra é registrada só depois que o meio de pagamento confirma, e uma mesma compra conta uma vez só.',
             'Bloqueadores de rastreamento impedem o pixel sem quebrar nada do produto.',
           ]}
         />

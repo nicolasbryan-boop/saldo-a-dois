@@ -8,6 +8,8 @@ import { Card } from '@/components/ui/card';
 import { Field, Input } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { api, ApiClientError } from '@/lib/api-client';
+import { trackPurchase, purchaseEventId } from '@/components/marketing/pixel-events';
+import { getPlan } from '@/config';
 
 interface CheckoutStatus {
   id: string;
@@ -26,13 +28,36 @@ interface CheckoutStatus {
 export function CheckoutReturn({
   checkoutId,
   initialStatus,
+  planId,
 }: {
   checkoutId: string;
   initialStatus: CheckoutStatus;
+  /** Plan on the checkout row, read from the database by the server. */
+  planId: string;
 }) {
   const router = useRouter();
   const [status, setStatus] = React.useState<CheckoutStatus>(initialStatus);
   const [attempts, setAttempts] = React.useState(0);
+
+  // THE ONLY PLACE A PURCHASE IS REPORTED.
+  //
+  // Gated on the status of our own checkout row, which turns "paid" only when
+  // a webhook with a verified signature said the gateway approved the money.
+  // Not on arriving here, not on a query string, not on the browser coming
+  // back from the gateway — a visitor controls all three.
+  //
+  // The event id is derived from the checkout row, so a reload, a second
+  // webhook delivery or a future Conversions API call all describe the same
+  // conversion and Meta counts it once.
+  const purchaseReported = React.useRef(false);
+
+  React.useEffect(() => {
+    if (purchaseReported.current) return;
+    if (status.status !== 'paid' && status.status !== 'claimed') return;
+
+    purchaseReported.current = true;
+    trackPurchase(getPlan(planId), purchaseEventId(checkoutId));
+  }, [status.status, planId, checkoutId]);
 
   React.useEffect(() => {
     if (status.status !== 'pending' || attempts > 40) return;
